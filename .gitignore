@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
-archive/
+archives
 archive
 .ipynb_checkpoints/
+tests/
