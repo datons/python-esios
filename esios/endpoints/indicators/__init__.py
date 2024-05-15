@@ -3,7 +3,7 @@ from esios.api_client import APIClient
 import html
 
 class Indicators(APIClient):
-    def __init__(self, api_key):
+    def __init__(self, api_key=None):
         super().__init__(api_key)
     
     def list(self, df=False):
