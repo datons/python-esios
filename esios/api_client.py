@@ -1,4 +1,5 @@
 import requests
+import os
 
 class APIClient:
     base_url = 'https://api.esios.ree.es'
@@ -8,7 +9,11 @@ class APIClient:
         'Host': 'api.esios.ree.es',
     }
 
-    def __init__(self, api_key):
+    def __init__(self, api_key=None):
+        if api_key is None:
+            api_key = os.getenv('ESIOS_API_KEY')  # Try to get the API key from environment variable
+            if api_key is None:
+                raise ValueError("API key must be provided either through constructor or as an environment variable 'ESIOS_API_KEY'")
         self.api_key = api_key
         self.headers['x-api-key'] = self.api_key
 
