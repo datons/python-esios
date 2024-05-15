@@ -1,7 +1,6 @@
 import pandas as pd
 from esios.api_client import APIClient
 import html
-from bs4 import BeautifulSoup
 
 class Indicators(APIClient):
     def __init__(self, api_key):
@@ -29,7 +28,6 @@ class Indicators(APIClient):
         if df:
             df = pd.DataFrame(data['indicators'])
             df['description'] = df['description'].apply(html.unescape)
-            df
             return df.set_index('id')
         else:
             return data

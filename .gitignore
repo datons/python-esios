@@ -10,3 +10,5 @@ archive
 tests/
 build/
 dist/
+utils/
+personal/
