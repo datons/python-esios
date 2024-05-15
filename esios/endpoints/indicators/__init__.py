@@ -91,6 +91,10 @@ class IndicatorData:
     def __init__(self, data):
         self.data = data
 
+class IndicatorData:
+    def __init__(self, data):
+        self.data = data
+
     def to_dataframe(self, column_name='value'):
         """
         Converts the indicator values data to a Pandas DataFrame.
@@ -109,18 +113,19 @@ class IndicatorData:
         
         if values:
             df = pd.DataFrame(values)
-            df = df.set_index('datetime')
-            df.index = pd.to_datetime(df.index, utc=True)
+            if 'datetime' in df.columns:
+                df['datetime'] = pd.to_datetime(df['datetime'], utc=True)
+                df = df.set_index('datetime')
+                df.index = df.index.tz_convert('Europe/Madrid')
             
-            columns = df.columns
-            mask = columns.str.contains('time')
+            # Drop all columns that contain the word 'time' in them
+            df = df[[col for col in df.columns if not 'time' in col]]
             
-            df.drop(columns=columns[mask], inplace=True)
+            # Rename 'value' column if a different column_name is requested
+            if column_name in data and column_name != 'value':
+                df.rename(columns={'value': data[column_name]}, inplace=True)
             
-            if column_name != 'value':
-                df = df.rename(columns={'value': data[column_name]})
-            
-            return df.tz_convert('Europe/Madrid')
+            return df
         else:
             return pd.DataFrame()
 
@@ -133,9 +138,7 @@ class IndicatorData:
         dict
             A dictionary containing the metadata of the indicator.
         """
-        
-        # extract all inside indicator key, except values
-        metadata = self.data.get('indicator', {})
-        metadata.pop('values', None)
+        metadata = self.data.get('indicator', {}).copy()  # Use a copy to avoid mutating original data
+        metadata.pop('values', None)  # Remove values key to extract only metadata
         
         return metadata

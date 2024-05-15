@@ -12,3 +12,4 @@ build/
 dist/
 utils/
 personal/
+.env
