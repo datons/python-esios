@@ -2,9 +2,9 @@ import requests
 import os
 
 class APIClient:
-    base_url = 'https://api.esios.ree.es'
 
     def __init__(self, api_key=None):
+        self.base_url = 'https://api.esios.ree.es'
         self.api_key = api_key if api_key else os.getenv('ESIOS_API_KEY')
         if not self.api_key:
             raise ValueError("API key must be provided directly or set in the 'ESIOS_API_KEY' environment variable")

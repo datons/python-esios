@@ -4,7 +4,6 @@ __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
-archives
 archive
 .ipynb_checkpoints/
 tests/
@@ -13,3 +12,6 @@ dist/
 utils/
 personal/
 .env
+tutorial*
+.gitignore
+esios/endpoints/archives/data/
