@@ -17,13 +17,22 @@ class Archives(APIClient):
         else:
             return data
 
-    def get(self, archive_id, start_date, end_date, output_dir='.'):
+    def get(self, archive_id, start_date=None, end_date=None, date_type='datos'):
+        """
+        start_date : str, optional
+            The start date of the data to retrieve (format: 'YYYY-MM-DD').
+        end_date : str, optional
+            The end date of the data to retrieve (format: 'YYYY-MM-DD').
+        date_type : str {'datos', 'publicacion'}, default 'datos'
+            The type of date to filter by. Options are 'datos' (data date) or 'publicacion' (publication date).
+        """
         
-        params = {
-            'start_date': start_date,
-            'end_date': end_date,
-            'date_type': 'datos'
-        }
+        params = {'date_type': date_type}
+        
+        if start_date:
+            params['start_date'] = start_date
+        if end_date:
+            params['end_date'] = end_date
         
         endpoint = f"/archives/{archive_id}"
         response = self._api_call('GET', endpoint, params=params)
@@ -50,7 +59,7 @@ class ArchiveData:
         url = self.base_url + data['url']
         
         path = os.path.join(output_dir, name)
-        utils.download_zip(url, path)
+        utils.download_file(url, path)
         
         
     def get_metadata(self):

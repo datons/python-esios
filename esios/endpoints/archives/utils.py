@@ -20,7 +20,7 @@ def extract_zip(file, directory):
                 os.remove(member_path)  # Remove the nested ZIP file after extraction
                 
                 
-def download_zip(url, output_dir):
+def download_file(url, output_dir):
     """
     Downloads a ZIP file from the given URL and extracts its contents to the specified output directory.
     Handles nested ZIP files by extracting them recursively.
