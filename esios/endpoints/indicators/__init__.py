@@ -71,7 +71,7 @@ class Indicators(APIClient):
         if end_date:
             params['end_date'] = end_date + 'T23:59:59'
         if geo_ids:
-            params['geo_ids'] = ','.join(map(str, geo_ids))
+            params['geo_ids[]'] = ','.join(map(str, geo_ids))
         if locale:
             params['locale'] = locale
         if time_agg:
