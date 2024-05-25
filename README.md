@@ -10,7 +10,25 @@ This library provides a simple interface to download and preprocess the data fro
 pip install python-esios
 ```
 
+## Get token
+
+Ask for a personal token to access the ESIOS API following the [instructions from REE](https://www.esios.ree.es/es/pagina/api).
+
 ## Usage
+
+### Register the token in Python
+
+```python
+TOKEN = '343sdfewe342309gjarijgwoiret834383434524...'
+TOKEN = '<YOUR_TOKEN>'
+```
+
+Then, set the token in the environment variable `ESIOS_API_KEY`.
+
+```python
+import os
+os.environ['ESIOS_API_KEY'] = TOKEN
+```
 
 ### Instantiate the client
 
