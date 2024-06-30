@@ -3,6 +3,7 @@ import requests
 import warnings
 from .indicators import Indicators
 from .archives import Archives
+from .offer_indicators import OfferIndicators
 
 class ESIOSClient:
     def __init__(self, api_key_esios=None, api_key_premium=None):
@@ -50,5 +51,7 @@ class ESIOSClient:
             return Indicators(self)
         elif name == 'archives':
             return Archives(self)
+        elif name == 'offer_indicators':
+            return OfferIndicators(self)
         else:
             raise ValueError(f"Unknown endpoint: {name}")
