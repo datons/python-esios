@@ -45,5 +45,5 @@ endpoint = client.endpoint(name=?)
 
 In the tutorials below, you will learn how to download, preprocess, and visualize the data from the following endpoints:
 
-- [Indicators](https://github.com/datons/python-esios/blob/main/examples/20_Indicators/0_Steps/B1_Download.ipynb)
-- [Archives](https://github.com/datons/python-esios/blob/main/examples/30_Archives/0_Steps/B1_Download.ipynb)
+- [Indicators](https://github.com/datons/python-esios/blob/main/examples/30_Indicators/0_Steps/B1_Download.ipynb)
+- [Archives](https://github.com/datons/python-esios/blob/main/examples/20_Archives/0_Steps/B1_Download.ipynb)
