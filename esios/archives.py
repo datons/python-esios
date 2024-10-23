@@ -45,6 +45,7 @@ class Archive:
             raise ValueError("Either 'date', or 'start' and 'end' dates must be provided")
         
         endpoint = f"archives/{self.id}"
+        
         response = self.client._get(endpoint, self.client.public_headers, params=params)
         
         self.metadata = response
@@ -71,7 +72,7 @@ class Archive:
             The path to the extracted file.
         """
         
-        response = requests.get(self.url_download, headers=self.client.public_headers)
+        response = requests.get(self.url_download)
         response.raise_for_status()
         
         zip_file = BytesIO(response.content)

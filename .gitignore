@@ -16,5 +16,5 @@ tutorial*
 .gitignore
 esios/endpoints/archives/data/
 docs/
-data/
+data
 *.xlsx
