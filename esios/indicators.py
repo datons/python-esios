@@ -48,10 +48,18 @@ class Indicator:
         # Remove None values from params
         params = {k: v for k, v in params.items() if v is not None}
         
-        start_date = datetime.strptime(start, '%Y-%m-%d')
-        end_date = datetime.strptime(end, '%Y-%m-%d')
+        start_date = pd.to_datetime(start)
+        end_date = pd.to_datetime(end)
         three_weeks = timedelta(weeks=3)
-
+        
+        endpoint = f"indicators/{self.id}"
+        
+        if end_date - start_date <= three_weeks:
+            data = self.client._get(endpoint, self.client.public_headers, params=params)
+            data = data.get('indicator', {}).get('values', [])
+            
+            return self._to_dataframe(data, column_name)
+        
         data_all = []
 
         current_start = start_date
@@ -61,7 +69,6 @@ class Indicator:
             chunk_params['start_date'] = current_start.strftime('%Y-%m-%d')
             chunk_params['end_date'] = current_end.strftime('%Y-%m-%d') + 'T23:59:59'
 
-            endpoint = f"indicators/{self.id}"
             data = self.client._get(endpoint, self.client.public_headers, params=chunk_params)
             data_all.extend(data.get('indicator', {}).get('values', []))
 
