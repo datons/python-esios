@@ -4,7 +4,7 @@ import os
 from io import BytesIO
 import requests
 from datetime import timedelta
-
+from pathlib import Path
 
 class Archives:
     def __init__(self, client):
@@ -30,7 +30,7 @@ class Archive:
         data = self.client._get(endpoint, self.client.public_headers)
         return data.get("archive", {})
 
-    def configure(self, date=None, start=None, end=None, date_type="real", locale="es"):
+    def configure(self, date=None, start=None, end=None, date_type = "datos", locale="es"):
         """
         Configures the archive to download.
 
@@ -86,6 +86,13 @@ class Archive:
         """
 
         params = self.metadata["archive"]["date"]
+        
+        if 'date' in params:
+            response = requests.get(self.url_download)
+            response.raise_for_status()
+            zip_file = BytesIO(response.content)
+            self._extract_zip(zip_file, output_dir)
+            return
 
         start_date = pd.to_datetime(params["start_date"])
         end_date = pd.to_datetime(params["end_date"])
@@ -115,11 +122,14 @@ class Archive:
 
                 response = requests.get(self.url_download)
                 response.raise_for_status()
-
+                
                 zip_file = BytesIO(response.content)
 
-                # Extract the main ZIP file
-                self._extract_zip(zip_file, output_dir)
+                try:
+                    # Extract the main ZIP file
+                    self._extract_zip(zip_file, output_dir)
+                except Exception as e:
+                    print(response.content)
 
                 current_start = current_end + timedelta(days=1)
 
@@ -128,15 +138,35 @@ class Archive:
         Extracts a ZIP file to the specified directory. If there are nested ZIP files,
         they are extracted recursively.
         """
+        
+        root = self.metadata["archive"]["name"]
         with zipfile.ZipFile(file) as z:
+            incoming = z.namelist()
+            
+            # Check if the ZIP contains a single file
+            if len(incoming) == 1 and not incoming[0].endswith('/'):
+                file = incoming[0]
+                folder = file.split('.')[0]
+                path = Path(os.path.join(directory, root, folder, file))
+                path.parent.mkdir(parents=True, exist_ok=True)
+                z.extract(file, path.parent)  # Extract the single file into the folder
+                return  # Exit after handling the single file
+
+            # Extract all files
             z.extractall(directory)
-            for member in z.namelist():
+            
+            for member in incoming:
                 member_path = os.path.join(directory, member)
-                if zipfile.is_zipfile(member_path):
+                if member.endswith('.xlsx') or member.endswith('.xls'):
+                    # If it's an Excel file, ensure it's in its own folder
+                    folder_name = os.path.splitext(member)[0]
+                    folder = os.path.join(directory, folder_name)
+                    os.makedirs(folder, exist_ok=True)
+                    os.rename(member_path, os.path.join(folder, member))
+                elif zipfile.is_zipfile(member_path):
+                    # If it's a nested ZIP file, extract it recursively
                     nested_dir = os.path.splitext(member_path)[0]
                     os.makedirs(nested_dir, exist_ok=True)
                     with open(member_path, "rb") as nested_file:
                         self._extract_zip(nested_file, nested_dir)
-                    os.remove(
-                        member_path
-                    )  # Remove the nested ZIP file after extraction
+                    os.remove(member_path)  # Remove the nested ZIP file after extraction
