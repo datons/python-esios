@@ -5,7 +5,6 @@ from io import BytesIO
 import requests
 from datetime import timedelta
 from pathlib import Path
-from esios.archives.utils import NestedZipExtractor
 
 
 class Archives:
@@ -26,6 +25,7 @@ class Archive:
         self.client = client
         self.id = id
         self.metadata = self._get_metadata()
+        self.response = None
 
     def _get_metadata(self):
         endpoint = f"archives/{self.id}"
@@ -105,12 +105,11 @@ class Archive:
 
         output_dir = os.path.join(output_dir, self.name)
         os.makedirs(output_dir, exist_ok=True)
-        print("a")
-        print(end_date - start_date)
-        print(time_interval_chunk_limit)
+
         if end_date - start_date <= time_interval_chunk_limit:
             response = requests.get(self.url_download)
             response.raise_for_status()
+            self.response = response
             print("download without chunking")
 
             zip_file = BytesIO(response.content)
@@ -119,28 +118,46 @@ class Archive:
         else:
             current_start = start_date
             while current_start < end_date:
-                # Calculate the first moment of the next month
-                next_month = (
-                    current_start.replace(day=1) + timedelta(days=32)
-                ).replace(day=1)
-                current_end = min(next_month, end_date)
+                # Calculate the first day of the current month
+                first_day_of_month = current_start.replace(day=1)
+                # Calculate the last day of the current month
+                next_month = (first_day_of_month + timedelta(days=32)).replace(day=1)
+                last_day_of_month = next_month - timedelta(days=1)
+                current_end = min(last_day_of_month, end_date)
 
                 start = current_start.strftime("%Y-%m-%d")
                 end = current_end.strftime("%Y-%m-%d")
 
-                print(start, end)
                 self.configure(start=start, end=end, date_type=params["date_type"])
 
                 response = requests.get(self.url_download)
                 response.raise_for_status()
+                self.response = response
 
-                zip_file = BytesIO(response.content)
-                # return zip_file
-                try:
-                    # Extract the main ZIP file
-                    self._extract_zip(zip_file, output_dir)
-                except Exception as e:
-                    print(e)
+                if len(self.metadata["archive"]["date_times"]) > 1:
+                    date = self.metadata["archive"]["date_times"][0]
+                    date = date.replace("-", "")
+                elif "start_date" in self.metadata["archive"]["date"]:
+                    date = self.metadata["archive"]["date"]["start_date"].split()[0]
+                    date = date.replace("-", "")
+                else:
+                    print(f"No dates found for {self.name}")
+                    return
+                if response.headers["Content-Type"] == "zip":
+                    output_dir_date = os.path.join(output_dir, date)
+                    os.makedirs(output_dir_date, exist_ok=True)
+                    zip_file = BytesIO(response.content)
+                    # return zip_file, response
+                    # return zip_file
+                    try:
+                        # Extract the main ZIP file
+                        self._extract_zip(zip_file, output_dir_date)
+                    except Exception as e:
+                        print(e)
+                elif response.headers["Content-Type"] == "xls":
+                    path = os.path.join(output_dir, self.name + f"_{date}.xls")
+                    with open(path, "wb") as f:
+                        f.write(response.content)
 
                 current_start = current_end + timedelta(days=1)
 
@@ -150,7 +167,5 @@ class Archive:
         they are extracted recursively.
         """
 
-        root = self.metadata["archive"]["name"]
         with zipfile.ZipFile(file) as z:
-            extractor = NestedZipExtractor(directory, root)
-            extractor.extract(z, save_zip=False)
+            z.extractall(directory)

@@ -5,25 +5,20 @@ from datetime import datetime
 
 
 class NestedZipExtractor:
-    def __init__(self, output_dir, base_name):
+    def __init__(self, output_dir):
         self.output_dir = output_dir
-        self.initial_base_name = base_name
         os.makedirs(self.output_dir, exist_ok=True)
 
-    def ensure_folder(self, base_name, parent_dir=None):
+    def ensure_folder(self, parent_dir=None):
         target_dir = parent_dir or self.output_dir
-        folder_path = os.path.join(target_dir, base_name)
-        os.makedirs(folder_path, exist_ok=True)
-        return folder_path
+        os.makedirs(target_dir, exist_ok=True)
+        return target_dir
 
     def extract_zip_object(self, zip_obj, extract_to):
         zip_obj.extractall(extract_to)
 
-    def process_zip_object(self, zip_obj, parent_dir=None, base_name=None):
-        if base_name is None:
-            base_name = os.path.splitext(zip_obj.filename or "nested_zip")[0]
-
-        extract_to = self.ensure_folder(base_name, parent_dir)
+    def process_zip_object(self, zip_obj, parent_dir=None):
+        extract_to = self.ensure_folder(parent_dir)
         self.extract_zip_object(zip_obj, extract_to)
 
         for root, dirs, files in os.walk(extract_to):
@@ -42,7 +37,7 @@ class NestedZipExtractor:
                 self.save_zip_file(zip_obj)
             return
 
-        self.process_zip_object(zip_obj, base_name=self.initial_base_name)
+        self.process_zip_object(zip_obj)
 
     def contains_only_directories(self, zip_obj):
         for info in zip_obj.infolist():
@@ -58,7 +53,7 @@ class NestedZipExtractor:
         """
         Save the ZIP file to the output directory without extracting.
         """
-        zip_name = f"{self.initial_base_name}_{datetime.now().strftime('%Y%m%d')}.zip"
+        zip_name = f"archive_{datetime.now().strftime('%Y%m%d')}.zip"
         zip_path = os.path.join(self.output_dir, zip_name)
         with open(zip_path, "wb") as f:
             shutil.copyfileobj(zip_obj.fp, f)
@@ -66,6 +61,6 @@ class NestedZipExtractor:
 
 
 # Example usage:
-# extractor = NestedZipExtractor("output_directory", "my_custom_base_name")
+# extractor = NestedZipExtractor("output_directory")
 # with zipfile.ZipFile('path/to/nested.zip', 'r') as zip_obj:
 #     extractor.extract(zip_obj)
