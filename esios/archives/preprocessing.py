@@ -42,8 +42,34 @@ class I90Book:
     def __getitem__(self, sheet_name: str):
         return self.get_sheet(sheet_name)
 
+
 def get_idx_column_start(columns):
-    return next((i for i, column in enumerate(columns) if column and column[0].isdigit()), -1)
+    return next((i for i, column in enumerate(columns) if column and str(column)[0].isdigit()), -1)
+
+def any_value_greater_than_30(series):
+    """
+    Check if any value in the series is greater than 30.
+
+    Parameters:
+    series (pd.Series): A pandas Series of values.
+
+    Returns:
+    bool: True if any value is greater than 30, False otherwise.
+    """
+    return any(value > 30 for value in series)
+
+
+import numpy as np
+import pandas as pd
+
+def normalize_datetime_columns(columns):
+    columns = np.array(columns, dtype=str)  # Ensure all elements are strings
+    if np.any(['-' in col for col in columns]):  # Check if any element contains '-'
+        mask_str = np.char.find(columns, '-') > -1
+        split_values = [col.split('-')[0] for col in columns[mask_str]]
+        columns[mask_str] = split_values
+    return pd.Series(columns, dtype=float).astype(int)
+    
 
 class I90Sheet:
     def __init__(self, sheet_name: str, workbook, path: Path):
@@ -54,6 +80,7 @@ class I90Sheet:
         self.sheet = workbook.get_sheet_by_name(sheet_name)
         self.rows = self._get_rows()
         self.df = None  # Initialize to None for lazy preprocessing
+        self.frequency = None
 
     def __repr__(self):
         return f"<I90Sheet {self.sheet_name}>"
@@ -102,9 +129,23 @@ class I90Sheet:
                 columns[idx_column_start:],
             ]
         ).replace("", np.nan).ffill(axis=1)
-        df_columns.loc[0, :] = df_columns.loc[0, :].str.split("-").str[0].astype(int)
-        datetime = df_columns.loc[0, :].map(lambda x: f"{date}T{x:02d}")
-        datetime = pd.to_datetime(datetime)
+        
+        s = normalize_datetime_columns(df_columns.loc[0, :])
+
+        # Precompute the base datetime
+        base_datetime = pd.to_datetime(date)
+        
+        # Use NumPy to compute the time deltas
+        if any_value_greater_than_30(s):
+            self.frequency = "hourly-quarterly"
+            time_deltas = (s - 1) * 15  # Compute time deltas in minutes
+        else:
+            self.frequency = "hourly"
+            time_deltas = s * 60  # Compute time deltas in minutes for hourly
+
+        # Vectorized datetime computation
+        datetime = base_datetime + pd.to_timedelta(time_deltas, unit='m')
+        
         df_columns.loc[0, :] = datetime
         columns = pd.MultiIndex.from_arrays(df_columns.values, names=["datetime", "variable"])
 
@@ -124,8 +165,23 @@ class I90Sheet:
         df_data = df_data.iloc[:, n_columns_totals:]
         
         columns_data = columns[idx_column_start:]
-        datetime = pd.Series(columns_data).str.split("-").str[0].astype(int)
-        columns = pd.to_datetime(datetime.map(lambda x: f"{date}T{x:02d}"))
+        s = normalize_datetime_columns(columns_data)
+
+        # Precompute the base datetime
+        base_datetime = pd.to_datetime(date)
+        
+        # Use NumPy to compute the time deltas
+        if any_value_greater_than_30(s):
+            self.frequency = "hourly-quarterly"
+            time_deltas = (s - 1) * 15  # Compute time deltas in minutes
+        else:
+            self.frequency = "hourly"
+            time_deltas = s * 60  # Compute time deltas in minutes for hourly
+
+        # Vectorized datetime computation
+        datetime = base_datetime + pd.to_timedelta(time_deltas, unit='m')
+        
+        columns = pd.to_datetime(datetime)
         columns.name = "datetime"
         
         df_data = df_data.replace("", np.nan)
