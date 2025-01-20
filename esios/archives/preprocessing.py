@@ -14,7 +14,8 @@ class I90Book:
     def _read_excel(self):
         with open(self.path, "rb") as f:
             self.workbook = python_calamine.CalamineWorkbook.from_filelike(f)
-        self.sheets = {name: I90Sheet(name, self.workbook, self.path) for name in self.workbook.sheet_names}
+        
+        self.sheets = {name: I90Sheet(name, self.workbook, self.path, self.metadata) for name in self.workbook.sheet_names}
 
     def _extract_metadata_and_toc(self):
         # Read the workbook to extract metadata and table of contents from the first sheet
@@ -23,8 +24,8 @@ class I90Book:
         first_sheet_rows = first_sheet.rows
 
         # Extract dates
-        self.metadata["date_of_data"] = first_sheet_rows[3][0]  # Row 4 (0-indexed), Column A
-        self.metadata["date_of_publication"] = first_sheet_rows[3][2]  # Row 4, Column C
+        self.metadata["date_data"] = pd.to_datetime(first_sheet_rows[3][0])  # Row 4 (0-indexed), Column A
+        self.metadata["date_publication"] = pd.to_datetime(first_sheet_rows[3][2])  # Row 4, Column C
 
         # Extract table of contents (columns A and B starting from row 10)
         df = pd.read_excel(self.path, sheet_name=0, header=None, skiprows=9, usecols="A,B")
@@ -59,55 +60,43 @@ def any_value_greater_than_30(series):
     return any(value > 30 for value in series)
 
 
-import numpy as np
-import pandas as pd
 
-def normalize_datetime_columns(columns):
-    columns = np.array(columns, dtype=str)  # Ensure all elements are strings
-    if np.any(['-' in col for col in columns]):  # Check if any element contains '-'
-        mask_str = np.char.find(columns, '-') > -1
-        split_values = [col.split('-')[0] for col in columns[mask_str]]
-        columns[mask_str] = split_values
-    return pd.Series(columns, dtype=float).astype(int)
+
     
 
 class I90Sheet:
-    def __init__(self, sheet_name: str, workbook, path: Path):
+    def __init__(self, sheet_name: str, workbook, path: Path, metadata: dict):
         self.sheet_name = sheet_name
         self.workbook = workbook
         self.path = path
-        self.metadata = {}
+        self.metadata = metadata
         self.sheet = workbook.get_sheet_by_name(sheet_name)
-        self.rows = self._get_rows()
         self.df = None  # Initialize to None for lazy preprocessing
         self.frequency = None
+        self.rows = self._get_rows()
 
     def __repr__(self):
         return f"<I90Sheet {self.sheet_name}>"
 
-    def _get_rows(self):
-        return self.sheet.to_python()
 
-    def _preprocess(self):
-        if len(self.rows) <= 1:
-            return pd.DataFrame()
-
-        len_rows = np.array([sum([cell != "" for cell in row]) for row in self.rows[:4]])
-        idx = len_rows.argmax()
-        columns = self.rows[idx]
-
-        idx_column_data_start = get_idx_column_start(columns)
-
-        date = self.path.stem.split("_")[-1]
-        
-        if idx_column_data_start == -1:
-            return self._preprocess_double_index(idx, columns, date)
+    def _normalize_datetime_columns(self, columns):
+        if any(pd.isna(columns)):
+            self._n_columns_totals = 3
         else:
-            return self._preprocess_single_index(idx, idx_column_data_start, columns, date)
-
-    def _preprocess_double_index(self, idx, columns, date):
+            self._n_columns_totals = 2
+            
+        columns = pd.Series(columns, dtype=str).ffill()
+        columns = columns.str.split('-').str[0]
         
-        n_columns_totals = 3
+        return columns.astype(float).astype(int)
+    def _get_rows(self):
+        rows = self.sheet.to_python()
+        rows = np.array(rows)
+        rows[rows == ''] = np.nan
+        return rows
+
+    def _preprocess_double_index(self, idx, columns):
+        
         idx_prior = idx - 1
         
         columns_prior = self.rows[idx_prior]
@@ -116,76 +105,73 @@ class I90Sheet:
         if idx_column_start == -1:
             return pd.DataFrame()
 
-        columns_index = columns[: idx_column_start - n_columns_totals]
-        df_data = (
-            pd.DataFrame(self.rows[idx + 1:], columns=columns)
-            .set_index(columns_index)
-            .iloc[:, n_columns_totals:]
-        )
+        columns_date = columns_prior[idx_column_start:]
+        columns_variable = columns[idx_column_start:]
         
-        df_columns = pd.DataFrame(
-            [
-                columns_prior[idx_column_start:],
-                columns[idx_column_start:],
-            ]
-        ).replace("", np.nan).ffill(axis=1)
+        columns_date = self._normalize_datetime_columns(columns_date)
         
-        s = normalize_datetime_columns(df_columns.loc[0, :])
+        columns_index = columns[: idx_column_start - self._n_columns_totals]
+        
+        return columns, columns_index, columns_date, columns_variable
+    
+    
+    def _preprocess_single_index(self, idx_column_start, columns):
+        
+        columns_date = columns[idx_column_start:]
+        columns_date = self._normalize_datetime_columns(columns_date)
+        
+        columns_index = columns[:idx_column_start - self._n_columns_totals]
+        
+        return columns, columns_index, columns_date, None
+    
+    def _preprocess(self):
+        if len(self.rows) <= 1:
+            return pd.DataFrame()
+        
+        try:
+            len_rows = np.array([sum([not pd.isna(cell) for cell in row]) for row in self.rows[:4]])  # Check for non-missing values
+            idx = len_rows.argmax()
+            columns = self.rows[idx]
 
-        # Precompute the base datetime
-        base_datetime = pd.to_datetime(date)
-        
-        # Use NumPy to compute the time deltas
-        if any_value_greater_than_30(s):
-            self.frequency = "hourly-quarterly"
-            time_deltas = (s - 1) * 15  # Compute time deltas in minutes
-        else:
-            self.frequency = "hourly"
-            time_deltas = s * 60  # Compute time deltas in minutes for hourly
+            idx_column_data_start = get_idx_column_start(columns)
 
-        # Vectorized datetime computation
-        datetime = base_datetime + pd.to_timedelta(time_deltas, unit='m')
-        
-        df_columns.loc[0, :] = datetime
-        columns = pd.MultiIndex.from_arrays(df_columns.values, names=["datetime", "variable"])
+            if idx_column_data_start == -1:
+                columns, columns_index, columns_date, columns_variable = self._preprocess_double_index(idx, columns)
+            else:
+                columns, columns_index, columns_date, columns_variable = self._preprocess_single_index(idx_column_data_start, columns)
+            
+            if any_value_greater_than_30(columns_date):
+                self.frequency = "hourly-quarterly"
+                time_deltas = (columns_date - 1) * 15  # Compute time deltas in minutes
+            else:
+                self.frequency = "hourly"
+                time_deltas = columns_date * 60  # Compute time deltas in minutes for hourly
 
-        df_data.columns = columns
-        df_data = df_data.replace("", np.nan)
-        df_data = df_data.stack(level="datetime", future_stack=True).astype(float)
+            # Vectorized datetime computation
+            columns_datetime = pd.to_datetime(self.metadata["date_data"]) + pd.to_timedelta(time_deltas, unit='m')
+            
+            data = pd.DataFrame(self.rows[idx + 1:], columns=columns)
+            
+            if columns_variable is not None:
+                columns_data = pd.MultiIndex.from_arrays([columns_datetime, columns_variable], names=["datetime", "variable"])
+            else:
+                columns_data = columns_datetime
+                columns_data.name = "datetime"
+            
+            data = data.set_index(columns_index.tolist()).iloc[:, self._n_columns_totals:]
+            data.columns = columns_data
+            
+            data = data.stack(level="datetime", future_stack=True).astype(float)
+            
+            if isinstance(data, pd.DataFrame):
+                return data
+            else:
+                return data.to_frame(name="value")
+            
+        except Exception as e:
+            
+            print(f"Error in _preprocess: {e}")
+            return pd.DataFrame()
+            
+    
 
-        return df_data
-
-    def _preprocess_single_index(self, idx, idx_column_start, columns, date):
-        n_columns_totals = 2
-        
-        columns_index = columns[:idx_column_start - n_columns_totals]
-        df_data = pd.DataFrame(self.rows[idx + 1:], columns=columns)
-        
-        df_data = df_data.set_index(columns_index)
-        df_data = df_data.iloc[:, n_columns_totals:]
-        
-        columns_data = columns[idx_column_start:]
-        s = normalize_datetime_columns(columns_data)
-
-        # Precompute the base datetime
-        base_datetime = pd.to_datetime(date)
-        
-        # Use NumPy to compute the time deltas
-        if any_value_greater_than_30(s):
-            self.frequency = "hourly-quarterly"
-            time_deltas = (s - 1) * 15  # Compute time deltas in minutes
-        else:
-            self.frequency = "hourly"
-            time_deltas = s * 60  # Compute time deltas in minutes for hourly
-
-        # Vectorized datetime computation
-        datetime = base_datetime + pd.to_timedelta(time_deltas, unit='m')
-        
-        columns = pd.to_datetime(datetime)
-        columns.name = "datetime"
-        
-        df_data = df_data.replace("", np.nan)
-        df_data.columns = columns
-        df_data = df_data.stack(level="datetime", future_stack=True).to_frame(name="value").astype(float)
-        
-        return df_data
