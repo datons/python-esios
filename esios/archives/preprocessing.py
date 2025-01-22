@@ -149,6 +149,7 @@ class I90Sheet:
 
             # Vectorized datetime computation
             columns_datetime = pd.to_datetime(self.metadata["date_data"]) + pd.to_timedelta(time_deltas, unit='m')
+            columns_datetime = pd.DatetimeIndex(columns_datetime).tz_localize('Europe/Madrid', ambiguous='infer').tz_convert('UTC')
             
             data = pd.DataFrame(self.rows[idx + 1:], columns=columns)
             
