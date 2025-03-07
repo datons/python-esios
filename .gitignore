@@ -3,3 +3,5 @@ __pycache__/
 python_esios.egg-info/
 *.xls
 .env
+docs/
+data

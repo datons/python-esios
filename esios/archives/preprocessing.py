@@ -60,10 +60,6 @@ def any_value_greater_than_30(series):
     return any(value > 30 for value in series)
 
 
-
-
-    
-
 class I90Sheet:
     def __init__(self, sheet_name: str, workbook, path: Path, metadata: dict):
         self.sheet_name = sheet_name

@@ -5,6 +5,7 @@ from io import BytesIO
 import requests
 from datetime import timedelta
 from pathlib import Path
+from .utils import ZipExtractor
 
 
 class Archives:
@@ -95,7 +96,8 @@ class Archive:
             response = requests.get(self.url_download)
             response.raise_for_status()
             zip_file = BytesIO(response.content)
-            self._extract_zip(zip_file, output_dir)
+            zx = ZipExtractor(zip_file, output_dir)
+            zx.unzip()
             return
 
         start_date = pd.to_datetime(params["start_date"])
@@ -110,12 +112,12 @@ class Archive:
             response = requests.get(self.url_download)
             response.raise_for_status()
             self.response = response
-            print("download without chunking")
-
-            zip_file = BytesIO(response.content)
-            self._extract_zip(zip_file, output_dir)
+            
+            self._unzip_file(response, output_dir)
+            return
 
         else:
+            
             current_start = start_date
             while current_start < end_date:
                 # Calculate the first day of the current month
@@ -133,39 +135,28 @@ class Archive:
                 response = requests.get(self.url_download)
                 response.raise_for_status()
                 self.response = response
-
-                if len(self.metadata["archive"]["date_times"]) > 1:
-                    date = self.metadata["archive"]["date_times"][0]
-                    date = date.replace("-", "")
-                elif "start_date" in self.metadata["archive"]["date"]:
-                    date = self.metadata["archive"]["date"]["start_date"].split()[0]
-                    date = date.replace("-", "")
-                else:
-                    print(f"No dates found for {self.name}")
-                    return
-                if response.headers["Content-Type"] == "zip":
-                    output_dir_date = os.path.join(output_dir, date)
-                    os.makedirs(output_dir_date, exist_ok=True)
-                    zip_file = BytesIO(response.content)
-                    # return zip_file, response
-                    # return zip_file
-                    try:
-                        # Extract the main ZIP file
-                        self._extract_zip(zip_file, output_dir_date)
-                    except Exception as e:
-                        print(e)
-                elif response.headers["Content-Type"] == "xls":
-                    path = os.path.join(output_dir, self.name + f"_{date}.xls")
-                    with open(path, "wb") as f:
-                        f.write(response.content)
+                
+                self._unzip_file(response, output_dir)
 
                 current_start = current_end + timedelta(days=1)
+                
+                
+    def _unzip_file(self, response, output_dir):
 
-    def _extract_zip(self, file, directory):
-        """
-        Extracts a ZIP file to the specified directory. If there are nested ZIP files,
-        they are extracted recursively.
-        """
-
-        with zipfile.ZipFile(file) as z:
-            z.extractall(directory)
+        zip_file = zipfile.ZipFile(BytesIO(response.content))
+        metadata = zip_file.NameToInfo
+        
+        zip_file_flag = False
+        for filename, zipinfo in metadata.items():
+            if filename.endswith('.zip'):
+                zip_file_flag = True
+                break
+        
+        if not zip_file_flag:
+            date = self.metadata["archive"]["date_times"][0]
+            date = pd.to_datetime(date)
+            output_dir = os.path.join(output_dir, f'{self.name}_{date.strftime("%Y%m%d")}')
+            
+        zx = ZipExtractor(response.content, output_dir)
+        zx.unzip()
+        return
