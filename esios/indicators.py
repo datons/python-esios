@@ -16,7 +16,8 @@ class Indicators:
         
         indicators = data.get('indicators', [])
         for indicator in indicators:
-            indicator['description'] = self._html_to_text(indicator['description'])
+            if 'description' in indicator:
+                indicator['description'] = self._html_to_text(indicator['description'])
         return pd.DataFrame(indicators)
 
     def select(self, id):
