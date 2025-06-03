@@ -56,22 +56,30 @@ class Archive:
 
     def download_and_extract(self, output_dir="."):
         params = self.metadata["archive"]["date"]
-        horizon = self.metadata["archive"].get("horizon", "D")  # Always access horizon from inside 'archive'
+        horizon = self.metadata["archive"].get("horizon", "D")
+        archive_type = self.metadata["archive"].get("archive_type", "zip")
 
         print(horizon)
         print(params)
         if "date" in params:
             response = requests.get(self.url_download)
             response.raise_for_status()
-            zip_file = BytesIO(response.content)
             if horizon == "M":
-                # Use the first date in date_times as the canonical month start
-                date_folder = pd.to_datetime(self.metadata["archive"]["date_times"][0]).strftime("%Y%m%d")
+                date_folder = pd.to_datetime(self.metadata["archive"]["date_times"][0]).strftime("%Y%m")
             else:
                 date_folder = pd.to_datetime(self.metadata["archive"]["date"]["date"]).strftime("%Y%m%d")
             output_dir = Path(output_dir) / self.name / f'{self.name}_{date_folder}'
-            zx = ZipExtractor(zip_file, output_dir)
-            zx.unzip()
+            output_dir.mkdir(parents=True, exist_ok=True)
+            if archive_type == "zip":
+                zip_file = BytesIO(response.content)
+                zx = ZipExtractor(zip_file, output_dir)
+                zx.unzip()
+            elif archive_type == "xls":
+                file_path = output_dir / f"{self.name}_{date_folder}.xls"
+                with open(file_path, "wb") as f:
+                    f.write(response.content)
+            else:
+                raise ValueError(f"Unsupported archive_type: {archive_type}")
             return
 
         start_date = pd.to_datetime(params["start_date"])
@@ -111,7 +119,15 @@ class Archive:
                 continue
 
             self.response = response
-            self._unzip_file(response, folder)
+            if archive_type == "zip":
+                self._unzip_file(response, folder)
+            elif archive_type == "xls":
+                folder.mkdir(parents=True, exist_ok=True)
+                file_path = folder / f"{self.name}_{current_key}.xls"
+                with open(file_path, "wb") as f:
+                    f.write(response.content)
+            else:
+                raise ValueError(f"Unsupported archive_type: {archive_type}")
 
             current_start = current_end + timedelta(days=1)
 

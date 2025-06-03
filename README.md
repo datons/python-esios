@@ -47,3 +47,5 @@ In the tutorials below, you will learn how to download, preprocess, and visualiz
 
 - [Indicators](https://github.com/datons/python-esios/blob/main/examples/30_Indicators/0_Steps/B1_Download.ipynb)
 - [Archives](https://github.com/datons/python-esios/blob/main/examples/20_Archives/0_Steps/B1_Download.ipynb)
+
+pip install --force-reinstall -e "git+ssh://git@github.com/jsulopzs/python-esios-private.git@feature/con-244-fix-i90-download-on-python-esios-private#egg=python-esios-private"
