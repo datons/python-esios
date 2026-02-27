@@ -119,6 +119,30 @@ class CacheStore:
         folder = self.archive_dir(archive_id, name, date_key)
         return folder.exists() and any(folder.iterdir())
 
+    # -- Migration -------------------------------------------------------------
+
+    def _maybe_migrate(self, endpoint: str, item_id: int) -> None:
+        """Auto-migrate old flat cache files to new directory layout.
+
+        Old layout: ``{cache_dir}/{endpoint}/{item_id}.parquet``
+        New layout: ``{cache_dir}/{endpoint}/{item_id}/data.parquet``
+        """
+        old_path = self.config.cache_dir / endpoint / f"{item_id}.parquet"
+        if not old_path.exists():
+            return
+
+        new_path = self._parquet_path(endpoint, item_id)
+        if new_path.exists():
+            # New layout already has data — just remove old file
+            old_path.unlink()
+            logger.info("Removed old cache file %s (already migrated).", old_path)
+            return
+
+        # Move old flat file into new directory layout
+        new_path.parent.mkdir(parents=True, exist_ok=True)
+        old_path.rename(new_path)
+        logger.info("Migrated cache %s → %s", old_path, new_path)
+
     # -- Data Read / Write -----------------------------------------------------
 
     def read(
@@ -136,6 +160,7 @@ class CacheStore:
         When *columns* is given, only those columns are returned.
         Returns empty DataFrame on cache miss.
         """
+        self._maybe_migrate(endpoint, indicator_id)
         path = self._parquet_path(endpoint, indicator_id)
         if not path.exists():
             return pd.DataFrame()

@@ -538,3 +538,68 @@ class TestDirectoryLayout:
         count = cache_store.clear()
         assert count == 4
         assert not cache_store.config.cache_dir.exists()
+
+
+class TestCacheMigration:
+    def test_migrate_flat_file_on_read(self, cache_store, sample_wide_df):
+        """Old flat parquet file is auto-migrated to new directory layout on read."""
+        # Create old-style flat file: {cache_dir}/indicators/600.parquet
+        old_path = cache_store.config.cache_dir / "indicators" / "600.parquet"
+        old_path.parent.mkdir(parents=True, exist_ok=True)
+        sample_wide_df.to_parquet(old_path)
+        assert old_path.exists()
+
+        # Read should auto-migrate and return data
+        result = cache_store.read(
+            "indicators", 600,
+            pd.Timestamp("2025-01-01", tz="Europe/Madrid"),
+            pd.Timestamp("2025-01-02", tz="Europe/Madrid"),
+        )
+        assert not result.empty
+        assert len(result) == 24
+
+        # Old file gone, new file exists
+        assert not old_path.exists()
+        new_path = cache_store._parquet_path("indicators", 600)
+        assert new_path.exists()
+        assert new_path.name == "data.parquet"
+
+    def test_migrate_skips_when_new_exists(self, cache_store, sample_wide_df):
+        """If new-layout file already exists, old file is just removed."""
+        # Create both old and new files
+        old_path = cache_store.config.cache_dir / "indicators" / "600.parquet"
+        old_path.parent.mkdir(parents=True, exist_ok=True)
+        sample_wide_df.to_parquet(old_path)
+
+        cache_store.write("indicators", 600, sample_wide_df)
+        new_path = cache_store._parquet_path("indicators", 600)
+        assert new_path.exists()
+
+        # Migration should remove old file without affecting new
+        cache_store._maybe_migrate("indicators", 600)
+        assert not old_path.exists()
+        assert new_path.exists()
+
+    def test_no_migration_when_no_old_file(self, cache_store):
+        """No-op when there's no old flat file to migrate."""
+        # Should not raise or create anything
+        cache_store._maybe_migrate("indicators", 600)
+        assert not cache_store._parquet_path("indicators", 600).exists()
+
+    def test_migration_preserves_data(self, cache_store):
+        """Migrated data is identical to original."""
+        idx = pd.date_range("2025-01-01", periods=3, freq="h", tz="Europe/Madrid")
+        original = pd.DataFrame({"España": [10.5, 20.3, 30.1]}, index=idx)
+
+        # Write in old format
+        old_path = cache_store.config.cache_dir / "indicators" / "600.parquet"
+        old_path.parent.mkdir(parents=True, exist_ok=True)
+        original.to_parquet(old_path)
+
+        # Read triggers migration
+        result = cache_store.read(
+            "indicators", 600,
+            pd.Timestamp("2025-01-01", tz="Europe/Madrid"),
+            pd.Timestamp("2025-01-02", tz="Europe/Madrid"),
+        )
+        assert list(result["España"]) == [10.5, 20.3, 30.1]
