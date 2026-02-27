@@ -33,8 +33,7 @@ dependencies = [
 
 [project.optional-dependencies]
 cli = ["typer>=0.12", "rich>=13.0"]
-mcp = ["fastmcp>=2.0"]
-all = ["python-esios[cli,mcp]"]
+all = ["python-esios[cli]"]
 
 [project.scripts]
 esios = "esios.cli:app"

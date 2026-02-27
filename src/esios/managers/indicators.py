@@ -323,7 +323,10 @@ class IndicatorsManager(BaseManager):
             cached = cache.read_catalog("indicators")
             if cached is not None:
                 logger.debug("Using cached indicator catalog (%d items)", len(cached))
-                return pd.DataFrame(cached)
+                df = pd.DataFrame(cached)
+                if "id" in df.columns:
+                    df = df.set_index("id")
+                return df
 
         # Fetch from API
         data = self._get("indicators")
@@ -340,7 +343,10 @@ class IndicatorsManager(BaseManager):
             ]
             cache.write_catalog("indicators", catalog_items)
 
-        return pd.DataFrame(indicators)
+        df = pd.DataFrame(indicators)
+        if "id" in df.columns:
+            df = df.set_index("id")
+        return df
 
     def search(self, query: str) -> pd.DataFrame:
         """Search indicators by name (case-insensitive substring match)."""
@@ -348,7 +354,7 @@ class IndicatorsManager(BaseManager):
         if df.empty:
             return df
         mask = df["name"].str.contains(query, case=False, na=False)
-        return df[mask].reset_index(drop=True)
+        return df[mask]
 
     def get(self, indicator_id: int) -> IndicatorHandle:
         """Get an indicator by ID — returns a handle with ``.historical()``.

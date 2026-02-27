@@ -42,3 +42,6 @@ htmlcov/
 
 # Config with secrets
 .config/
+
+# Dev scripts
+random/

@@ -30,7 +30,7 @@ class TestIndicatorsManager:
 
         df = client.indicators.search("solar")
         assert len(df) == 1
-        assert df.iloc[0]["id"] == 10035
+        assert df.index[0] == 10035
 
     def test_get_returns_handle(self, client, mock_httpx, sample_indicator_response):
         response = MagicMock()
