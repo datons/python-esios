@@ -47,26 +47,34 @@ class I90Book:
         self.path = Path(path)
         self.metadata: dict = {}
         self.table_of_contents: dict[str, str] = {}
-        self.sheets: dict[str, I90Sheet] = {}
+        self._sheets: dict[str, I90Sheet] = {}
+        self._workbook: python_calamine.CalamineWorkbook | None = None
+        self._sheet_names: list[str] = []
         self._extract_metadata_and_toc()
 
-    def _read_excel(self) -> None:
-        with open(self.path, "rb") as f:
-            self.workbook = python_calamine.CalamineWorkbook.from_filelike(f)
-        self.sheets = {
-            name: I90Sheet(name, self.workbook, self.path, self.metadata)
-            for name in self.workbook.sheet_names
-        }
+    @property
+    def sheets(self) -> dict[str, I90Sheet]:
+        """Access already-loaded sheets."""
+        return self._sheets
+
+    def _open_workbook(self) -> python_calamine.CalamineWorkbook:
+        """Open the workbook (cached after first call)."""
+        if self._workbook is None:
+            with open(self.path, "rb") as f:
+                self._workbook = python_calamine.CalamineWorkbook.from_filelike(f)
+            self._sheet_names = self._workbook.sheet_names
+        return self._workbook
 
     def _extract_metadata_and_toc(self) -> None:
         """Extract dates and table of contents from the first sheet."""
-        self._read_excel()
-        first_sheet = self.sheets[next(iter(self.sheets))]
-        rows = first_sheet.rows
+        wb = self._open_workbook()
+        first_name = self._sheet_names[0]
+        first_sheet = I90Sheet(first_name, wb, self.path, self.metadata)
+        self._sheets[first_name] = first_sheet
 
         # Dates from row 4
-        self.metadata["date_data"] = pd.to_datetime(rows[3][0])
-        self.metadata["date_publication"] = pd.to_datetime(rows[3][2])
+        self.metadata["date_data"] = pd.to_datetime(first_sheet.rows[3][0])
+        self.metadata["date_publication"] = pd.to_datetime(first_sheet.rows[3][2])
 
         # Table of contents from row 10 onwards
         df = pd.read_excel(self.path, sheet_name=0, header=None, skiprows=9, usecols="A,B", engine="calamine")
@@ -74,12 +82,13 @@ class I90Book:
         self.table_of_contents = df.set_index("sheet_name")["description"].to_dict()
 
     def get_sheet(self, sheet_name: str) -> I90Sheet:
-        """Get and preprocess a specific sheet by name."""
-        if sheet_name not in self.sheets:
-            self._read_excel()
-        sheet = self.sheets.get(sheet_name)
-        if sheet is None:
-            raise KeyError(f"Sheet '{sheet_name}' not found in {self.path.name}")
+        """Get and preprocess a specific sheet by name (lazy — only reads on demand)."""
+        if sheet_name not in self._sheets:
+            wb = self._open_workbook()
+            if sheet_name not in self._sheet_names:
+                raise KeyError(f"Sheet '{sheet_name}' not found in {self.path.name}")
+            self._sheets[sheet_name] = I90Sheet(sheet_name, wb, self.path, self.metadata)
+        sheet = self._sheets[sheet_name]
         if sheet.df is None:
             sheet.df = sheet._preprocess()
         return sheet
