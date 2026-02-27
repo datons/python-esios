@@ -1,0 +1,47 @@
+title: Compare Indicators
+cells:
+- markdown: |
+    # Compare Indicators
+
+    Fetch multiple indicators and merge them into a single DataFrame for
+    cross-indicator analysis.
+- code: |
+    from esios import ESIOSClient
+
+    client = ESIOSClient()
+- markdown: |
+    ## Multi-geo compare
+
+    Without a geo filter, `compare()` returns a MultiIndex column
+    `(indicator_name, geo_name)` — one column per indicator×geo combo:
+- code: |
+    df = client.indicators.compare(
+        [600, 612],
+        start="2025-01-01",
+        end="2025-01-07",
+    )
+    df
+- markdown: |
+    ## Filtering to one country
+
+    With `geo_ids`, each indicator returns a single column, so the result
+    has flat columns named by indicator:
+- code: |
+    handle = client.indicators.get(600)
+    spain_id = handle.resolve_geo("España")
+
+    df = client.indicators.compare(
+        [600, 612, 613, 614],
+        start="2025-01-01",
+        end="2025-01-07",
+        geo_ids=[spain_id],
+    )
+    df
+- markdown: |
+    ## Visualize
+- code: |
+    df.plot(figsize=(14, 5), title="Market Session Prices — España (€/MWh)")
+- markdown: |
+    ## Statistical summary
+- code: |
+    df.describe().round(2)

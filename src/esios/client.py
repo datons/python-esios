@@ -142,10 +142,20 @@ class ESIOSClient:
         return response.json()
 
     def download(self, url: str) -> bytes:
-        """Download raw bytes from an absolute URL (for archive files)."""
+        """Download raw bytes from an absolute URL (for archive files).
+
+        The ESIOS API may return a 307 redirect to an S3 presigned URL.
+        We follow redirects explicitly here (without sending the API key
+        header to S3, which would cause a 400).
+        """
         t0 = time.monotonic()
         try:
             response = self._http.get(url)
+            # Follow redirect (e.g. 307 to S3) with a plain client
+            if response.status_code in (301, 302, 307, 308) and "location" in response.headers:
+                redirect_url = response.headers["location"]
+                logger.debug("Following redirect to %s", redirect_url[:100])
+                response = httpx.get(redirect_url, timeout=self.timeout)
         except httpx.HTTPError as exc:
             raise NetworkError(str(exc)) from exc
 

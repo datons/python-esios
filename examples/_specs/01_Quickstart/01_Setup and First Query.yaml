@@ -1,0 +1,48 @@
+title: Setup and First Query
+cells:
+- markdown: |
+    # Setup and First Query
+
+    This notebook shows how to install `python-esios` and make your first API call.
+- markdown: |
+    ## Install the library
+- code: |
+    !pip install python-esios
+- markdown: |
+    ## Set your API key
+
+    Get a free API key from [ESIOS](https://www.esios.ree.es/) (login required).
+    Set it as an environment variable:
+
+    ```bash
+    export ESIOS_API_KEY="your-token-here"
+    ```
+- markdown: |
+    ## Create the client
+- code: |
+    from esios import ESIOSClient
+
+    client = ESIOSClient()
+- markdown: |
+    ## List available indicators
+
+    The ESIOS API exposes ~2000 indicators covering electricity prices,
+    generation, demand, and more.
+- code: |
+    df = client.indicators.list()
+    df
+- markdown: |
+    ## Fetch historical data
+
+    Let's get the spot price (indicator 600) for one week:
+- code: |
+    handle = client.indicators.get(600)
+    df = handle.historical("2025-01-01", "2025-01-07")
+    df
+- markdown: |
+    The result is a DataFrame with a `DatetimeIndex` and one column per
+    geography (country). The data is timezone-aware (Europe/Madrid).
+- markdown: |
+    ## Quick plot
+- code: |
+    df.plot(figsize=(12, 4), title="Spot Price (€/MWh) — Indicator 600")

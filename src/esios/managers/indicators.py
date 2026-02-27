@@ -169,13 +169,11 @@ class IndicatorHandle:
         start_date = pd.to_datetime(start)
         end_date = pd.to_datetime(end)
 
-        # Column names in cache are geo_names — determine which to check
-        geo_map = self._build_geo_map()  # str(geo_id) → geo_name
+        # Cache stores columns as str(geo_id); names are applied at finalize
         if geo_ids:
-            cache_cols = [geo_map.get(str(g), str(g)) for g in geo_ids]
+            cache_cols = [str(g) for g in geo_ids]
         elif self.geos:
-            # No filter: expect ALL known geos to have data
-            cache_cols = [g["geo_name"] for g in self.geos]
+            cache_cols = [str(g["geo_id"]) for g in self.geos]
         else:
             cache_cols = None
 
@@ -257,8 +255,9 @@ class IndicatorHandle:
     def _to_wide(self, values: list[dict]) -> pd.DataFrame:
         """Convert raw API value dicts to wide-format DataFrame.
 
-        Columns are geo_names (e.g. "España", "Portugal"). For single-geo
-        or no-geo indicators, the column is "value".
+        Columns are str(geo_id) (e.g. "3", "8826"). The mapping to human-
+        readable geo_names happens in ``_finalize()`` at output time, so the
+        cache always stores stable geo_id keys.
         """
         if not values:
             return pd.DataFrame()
@@ -266,14 +265,11 @@ class IndicatorHandle:
         df = to_dataframe(values, timezone=TIMEZONE, pivot_geo=False)
 
         if "geo_id" in df.columns and df["geo_id"].nunique() >= 1:
-            # Use geo_name as column label, fall back to str(geo_id)
-            col_key = "geo_name" if "geo_name" in df.columns else "geo_id"
-
             if df.index.name == "datetime":
                 df = df.reset_index()
             pivot = df.pivot_table(
                 index="datetime",
-                columns=col_key,
+                columns="geo_id",
                 values="value",
                 aggfunc="first",
             )
@@ -290,8 +286,9 @@ class IndicatorHandle:
     def _finalize(self, df: pd.DataFrame) -> pd.DataFrame:
         """Prepare DataFrame for user-facing output.
 
-        Single-column DataFrames get the indicator ID as column name.
-        Multi-column DataFrames already have geo_name labels from _to_wide().
+        Cache stores columns as str(geo_id). This method renames them to
+        human-readable geo_names at the very end, just before returning to
+        the caller. Single-value/single-geo indicators get the indicator ID.
         """
         if df.empty:
             return df
@@ -300,8 +297,21 @@ class IndicatorHandle:
             col = df.columns[0]
             if col == "value":
                 df = df.rename(columns={"value": str(self.id)})
-            # For single-geo selection, keep the geo_name as column name
-        # Multi-geo: columns are already geo_names from _to_wide()
+                return df
+
+        # Rename str(geo_id) columns → geo_name
+        geo_map = self._build_geo_map()  # str(geo_id) → geo_name
+        rename = {col: geo_map[col] for col in df.columns if col in geo_map}
+        if rename:
+            df = df.rename(columns=rename)
+
+        # Single-geo after rename: use indicator ID as column name
+        if len(df.columns) == 1:
+            col = df.columns[0]
+            # If the single column is a geo_name, keep it (user filtered to one geo)
+            # If it's still a geo_id string, rename to indicator ID
+            if col not in geo_map.values():
+                df = df.rename(columns={col: str(self.id)})
 
         return df
 
@@ -394,20 +404,49 @@ class IndicatorsManager(BaseManager):
     ) -> pd.DataFrame:
         """Fetch multiple indicators and merge into a single DataFrame.
 
-        Each indicator's value column is named by its ID.
+        When each indicator returns a single column (single-geo, or filtered
+        via ``geo_ids`` to one geo), the result has flat columns named by
+        indicator name.
+
+        When indicators return multiple geos, the result uses a MultiIndex
+        column ``(indicator_name, geo_name)`` so every indicator×geo combo
+        is represented.
         """
-        frames: dict[str, pd.DataFrame] = {}
+        single_col_frames: dict[str, pd.Series] = {}
+        multi_col_frames: list[pd.DataFrame] = []
+        has_multi = False
+
         for iid in indicator_ids:
             handle = self.get(iid)
             df = handle.historical(start, end, **kwargs)
-            col = df.columns[0] if len(df.columns) == 1 else None
-            if col:
-                frames[handle.name or str(iid)] = df[col]
-            else:
-                # Multi-geo: take first column or all
-                frames[handle.name or str(iid)] = df.iloc[:, 0]
+            label = handle.name or str(iid)
 
-        if not frames:
+            if len(df.columns) == 1:
+                single_col_frames[label] = df.iloc[:, 0]
+            else:
+                has_multi = True
+                # Add indicator name as top-level column index
+                df.columns = pd.MultiIndex.from_product(
+                    [[label], df.columns],
+                    names=["indicator", "geo"],
+                )
+                multi_col_frames.append(df)
+
+        if not single_col_frames and not multi_col_frames:
             return pd.DataFrame()
 
-        return pd.DataFrame(frames)
+        # All single-column → flat DataFrame
+        if not has_multi:
+            return pd.DataFrame(single_col_frames)
+
+        # Mix of single + multi → promote singles to MultiIndex too
+        for label, series in single_col_frames.items():
+            col_name = series.name if series.name else "value"
+            df_single = series.to_frame()
+            df_single.columns = pd.MultiIndex.from_tuples(
+                [(label, col_name)],
+                names=["indicator", "geo"],
+            )
+            multi_col_frames.append(df_single)
+
+        return pd.concat(multi_col_frames, axis=1).sort_index()

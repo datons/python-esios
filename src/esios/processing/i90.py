@@ -65,7 +65,7 @@ class I90Book:
         self.metadata["date_publication"] = pd.to_datetime(rows[3][2])
 
         # Table of contents from row 10 onwards
-        df = pd.read_excel(self.path, sheet_name=0, header=None, skiprows=9, usecols="A,B")
+        df = pd.read_excel(self.path, sheet_name=0, header=None, skiprows=9, usecols="A,B", engine="calamine")
         df.columns = ["sheet_name", "description"]
         self.table_of_contents = df.set_index("sheet_name")["description"].to_dict()
 

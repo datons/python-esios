@@ -1,0 +1,5 @@
+# Generated artifacts from running notebooks
+*.csv
+*.xlsx
+*.parquet
+data/

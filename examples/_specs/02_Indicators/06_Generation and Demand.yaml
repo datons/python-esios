@@ -1,0 +1,52 @@
+title: Generation and Demand
+cells:
+- markdown: |
+    # Generation and Demand
+
+    Analyze electricity generation mix and demand data from the Spanish grid.
+
+    Reference: https://www.esios.ree.es/es/balance
+- code: |
+    from esios import ESIOSClient
+
+    client = ESIOSClient()
+- markdown: |
+    ## Key generation indicators
+
+    | ID    | Description |
+    |-------|-------------|
+    | 73    | Wind generation |
+    | 74    | Nuclear generation |
+    | 79    | Hydro generation |
+    | 10008 | Combined cycle |
+    | 10010 | Solar PV generation |
+    | 10063 | Total renewable generation |
+- code: |
+    ids = [73, 74, 79, 10008, 10010, 10063]
+- markdown: |
+    ## Fetch generation data
+- code: |
+    df = client.indicators.compare(
+        ids,
+        start="2025-01-01",
+        end="2025-01-07",
+    )
+    df
+- markdown: |
+    ## Generation mix stacked area chart
+- code: |
+    gen_cols = [c for c in df.columns if c != df.columns[-1]]
+    df[gen_cols].resample("h").mean().plot.area(
+        figsize=(14, 6),
+        title="Generation Mix (MW) — January 2025",
+        alpha=0.7,
+    )
+- markdown: |
+    ## Daily totals
+- code: |
+    df_daily = df.resample("D").mean().round(1)
+    df_daily
+- markdown: |
+    ## Export to CSV
+- code: |
+    df.to_csv("generation_2025_01.csv")

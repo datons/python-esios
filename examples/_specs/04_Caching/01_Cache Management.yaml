@@ -1,0 +1,62 @@
+title: Cache Management
+cells:
+- markdown: |
+    # Cache Management
+
+    The v2 client caches indicator data as local parquet files. Historical
+    electricity data is immutable once published, so caching is safe and
+    enabled by default.
+- code: |
+    from esios import ESIOSClient
+- markdown: |
+    ## Default behavior
+
+    Cache is enabled automatically. Data is stored at `~/.cache/esios/`:
+
+    ```
+    ~/.cache/esios/
+    ├── geos.json                    # Global geo registry
+    ├── indicators/
+    │   ├── catalog.json             # Indicator list
+    │   └── 600/
+    │       ├── data.parquet         # Time-series data
+    │       └── meta.json            # Indicator metadata
+    └── archives/
+        └── 34/
+            └── I90DIA_20250101/     # Extracted archive files
+    ```
+- code: |
+    # Default: cache enabled
+    client = ESIOSClient()
+- markdown: |
+    ## First query — fetches from API
+- code: |
+    handle = client.indicators.get(600)
+
+    # First call: fetches from API
+    df = handle.historical("2025-01-01", "2025-01-07")
+    print(f"Rows: {len(df)}")
+- markdown: |
+    ## Second query — served from cache
+
+    Re-running the same query returns instantly from the local parquet cache:
+- code: |
+    # Second call: instant from cache
+    df2 = handle.historical("2025-01-01", "2025-01-07")
+    print(f"Rows: {len(df2)}")
+- markdown: |
+    ## Extending the range
+
+    If you request a wider range, only the missing dates are fetched:
+- code: |
+    # Only fetches Jan 8-14, reuses Jan 1-7 from cache
+    df_extended = handle.historical("2025-01-01", "2025-01-14")
+    print(f"Rows: {len(df_extended)}")
+- markdown: |
+    ## Custom cache directory
+- code: |
+    client_custom = ESIOSClient(cache_dir="/tmp/esios-cache")
+- markdown: |
+    ## Disable caching
+- code: |
+    client_nocache = ESIOSClient(cache=False)

@@ -1,0 +1,50 @@
+title: I90 Settlement Files
+cells:
+- markdown: |
+    # I90 Settlement Files
+
+    I90DIA files contain detailed per-unit settlement data for the Spanish
+    electricity market. This notebook shows how to download and parse them.
+- code: |
+    from esios import ESIOSClient
+
+    client = ESIOSClient()
+- markdown: |
+    ## Download I90DIA files
+
+    Archive ID 34 = I90DIA (daily settlement by programming unit).
+- code: |
+    path = client.archives.download(
+        34,
+        date="2024-06-15",
+        output_dir="data",
+    )
+    print(f"Extracted to: {path}")
+- markdown: |
+    ## Parse with I90Book
+
+    The `I90Book` class reads the XLS file and gives access to individual sheets:
+- code: |
+    from pathlib import Path
+    from esios.processing.i90 import I90Book
+
+    # Find the XLS file
+    xls_files = list(Path("data").rglob("I90DIA*.xls"))
+    print(f"Found: {[f.name for f in xls_files]}")
+- code: |
+    book = I90Book(xls_files[0])
+    print(f"Date: {book.metadata['date_data']}")
+    print(f"Sheets: {list(book.table_of_contents.keys())[:10]}")
+- markdown: |
+    ## Read a specific sheet
+
+    Sheet "I90DIA03" contains generation by technology:
+- code: |
+    sheet = book["I90DIA03"]
+    df = sheet.df
+    print(f"Frequency: {sheet.frequency}")
+    df
+- markdown: |
+    ## Export processed data
+- code: |
+    df.to_parquet("data/i90_sheet_03.parquet")

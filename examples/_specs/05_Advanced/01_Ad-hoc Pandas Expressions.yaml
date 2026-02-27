@@ -1,0 +1,45 @@
+title: Ad-hoc Pandas Expressions
+cells:
+- markdown: |
+    # Ad-hoc Pandas Expressions
+
+    Since all data is returned as pandas DataFrames, you can apply any
+    pandas operation directly — no special API needed.
+- code: |
+    from esios import ESIOSClient
+
+    client = ESIOSClient()
+- markdown: |
+    ## Fetch data
+- code: |
+    handle = client.indicators.get(600)
+    df = handle.historical("2025-01-01", "2025-01-31")
+    df.head()
+- markdown: |
+    ## Resample to daily averages
+- code: |
+    df.resample("D").mean().round(2)
+- markdown: |
+    ## Rolling 24-hour average
+- code: |
+    df["España"].rolling(24).mean().plot(
+        figsize=(12, 4),
+        title="24h Rolling Average — España",
+    )
+- markdown: |
+    ## Filter hours with negative prices
+- code: |
+    df[df["España"] < 0]
+- markdown: |
+    ## Monthly statistics
+- code: |
+    df["España"].describe().round(2)
+- markdown: |
+    ## Pivot: average price by hour of day
+- code: |
+    hourly = df.copy()
+    hourly["hour"] = hourly.index.hour
+    hourly.groupby("hour")["España"].mean().round(2).plot.bar(
+        figsize=(12, 4),
+        title="Average Price by Hour — España (€/MWh)",
+    )

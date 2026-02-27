@@ -1,0 +1,65 @@
+title: Async Client
+cells:
+- markdown: |
+    # Async Client
+
+    For high-throughput applications, use `AsyncESIOSClient` to make
+    concurrent API calls with `asyncio`.
+- code: |
+    import asyncio
+    from esios import AsyncESIOSClient
+- markdown: |
+    ## Basic usage
+
+    The async client provides `get()` and `download()` methods that return
+    raw API responses (dicts), not DataFrames. You handle the data processing.
+- code: |
+    async def fetch_indicator(indicator_id: int) -> dict:
+        async with AsyncESIOSClient() as client:
+            data = await client.get(
+                f"indicators/{indicator_id}",
+                params={
+                    "start_date": "2025-01-01",
+                    "end_date": "2025-01-07",
+                },
+            )
+            return data
+
+    result = await fetch_indicator(600)
+    print(f"Indicator: {result['indicator']['name']}")
+    print(f"Values: {len(result['indicator']['values'])}")
+- markdown: |
+    ## Concurrent requests
+
+    Fetch multiple indicators in parallel:
+- code: |
+    async def fetch_multiple(ids: list[int]) -> list[dict]:
+        async with AsyncESIOSClient() as client:
+            tasks = [
+                client.get(
+                    f"indicators/{iid}",
+                    params={
+                        "start_date": "2025-01-01",
+                        "end_date": "2025-01-07",
+                    },
+                )
+                for iid in ids
+            ]
+            return await asyncio.gather(*tasks)
+
+    results = await fetch_multiple([600, 612, 613, 614])
+    for r in results:
+        ind = r["indicator"]
+        print(f"  {ind['id']}: {ind['name']} — {len(ind['values'])} values")
+- markdown: |
+    ## When to use async vs sync
+
+    | Use case | Client |
+    |----------|--------|
+    | Notebooks, scripts, CLI | `ESIOSClient` (sync) |
+    | Web apps (FastAPI, etc.) | `AsyncESIOSClient` |
+    | Bulk downloads (100+ requests) | `AsyncESIOSClient` |
+    | Simple analysis | `ESIOSClient` (sync) |
+
+    The sync client includes caching, DataFrame conversion, and geo pivoting.
+    The async client is lower-level — it returns raw API dicts.

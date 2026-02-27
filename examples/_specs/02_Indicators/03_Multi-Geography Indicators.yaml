@@ -1,0 +1,47 @@
+title: Multi-Geography Indicators
+cells:
+- markdown: |
+    # Multi-Geography Indicators
+
+    Many indicators return data for multiple geographies (countries, regions).
+    The v2 client pivots these automatically into wide-format DataFrames.
+- code: |
+    from esios import ESIOSClient
+
+    client = ESIOSClient()
+- markdown: |
+    ## Spot price across countries
+
+    Indicator 600 (spot price) returns data for 8 European countries:
+- code: |
+    handle = client.indicators.get(600)
+    handle.geos_dataframe()
+- code: |
+    df = handle.historical("2025-01-01", "2025-01-07")
+    df
+- markdown: |
+    Each column is a country name. This makes plotting and analysis straightforward.
+- markdown: |
+    ## Compare two countries
+- code: |
+    df[["España", "Portugal"]].plot(
+        figsize=(12, 4),
+        title="Spain vs Portugal Spot Price (€/MWh)",
+    )
+- markdown: |
+    ## Correlation matrix
+- code: |
+    df.corr().round(2)
+- markdown: |
+    ## Select specific geographies
+
+    Use `geo_ids` to fetch only the countries you need, reducing API calls:
+- code: |
+    spain_id = handle.resolve_geo("España")
+    france_id = handle.resolve_geo("Francia")
+
+    df_subset = handle.historical(
+        "2025-01-01", "2025-01-07",
+        geo_ids=[spain_id, france_id],
+    )
+    df_subset

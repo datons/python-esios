@@ -1,0 +1,55 @@
+title: Market Prices
+cells:
+- markdown: |
+    # Market Prices
+
+    Analyze electricity market prices from multiple market sessions
+    (day-ahead, intraday sessions 1–3).
+- code: |
+    from esios import ESIOSClient
+
+    client = ESIOSClient()
+- markdown: |
+    ## Key market price indicators
+
+    | ID  | Description |
+    |-----|-------------|
+    | 600 | Spot price (OMIE day-ahead) |
+    | 612 | Intraday session 1 |
+    | 613 | Intraday session 2 |
+    | 614 | Intraday session 3 |
+- code: |
+    ids = [600, 612, 613, 614]
+- markdown: |
+    ## Fetch all market prices for España
+- code: |
+    handle = client.indicators.get(600)
+    spain_id = handle.resolve_geo("España")
+
+    df = client.indicators.compare(
+        ids,
+        start="2025-01-01",
+        end="2025-01-07",
+        geo_ids=[spain_id],
+    )
+    df
+- markdown: |
+    ## Daily average prices
+- code: |
+    df_daily = df.resample("D").mean()
+    df_daily.round(2)
+- markdown: |
+    ## Price spread analysis
+
+    The spread between intraday sessions and the day-ahead price:
+- code: |
+    first_col = df.columns[0]
+    spread = df.subtract(df[first_col], axis=0)
+    spread.drop(columns=[first_col]).plot(
+        figsize=(14, 5),
+        title="Intraday vs Day-Ahead Spread (€/MWh)",
+    )
+- markdown: |
+    ## Export to CSV
+- code: |
+    df.to_csv("market_prices.csv")

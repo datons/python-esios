@@ -1,0 +1,41 @@
+title: Download Archives
+cells:
+- markdown: |
+    # Download Archives
+
+    The ESIOS platform provides downloadable archive files (ZIP/XLS) for
+    detailed settlement, generation, and market data.
+
+    Browse archives at: https://www.esios.ree.es/es/descargas
+- code: |
+    from esios import ESIOSClient
+
+    client = ESIOSClient()
+- markdown: |
+    ## List available archives
+- code: |
+    df = client.archives.list()
+    df[["name", "id", "horizon", "archive_type"]]
+- markdown: |
+    ## Download a single date
+
+    Use `archives.download()` for a one-step get + download:
+- code: |
+    path = client.archives.download(
+        34,  # I90DIA archive
+        date="2024-06-15",
+        output_dir="data",
+    )
+    print(f"Files saved to: {path}")
+- markdown: |
+    ## Using the handle for more control
+
+    `archives.get()` returns a handle with `configure()` and `download()` methods:
+- code: |
+    handle = client.archives.get(34)
+    print(f"Archive: {handle.name}")
+    print(f"ID: {handle.id}")
+    print(f"Metadata: {handle.metadata['archive']['description']}")
+- markdown: |
+    Files are cached locally — subsequent downloads for the same dates
+    skip the API call entirely.

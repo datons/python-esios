@@ -1,0 +1,38 @@
+title: Search Indicators
+cells:
+- markdown: |
+    # Search Indicators
+
+    Browse and search the full catalog of ESIOS indicators.
+- code: |
+    from esios import ESIOSClient
+
+    client = ESIOSClient()
+- markdown: |
+    ## Full catalog
+
+    `client.indicators.list()` returns the complete indicator catalog as a DataFrame.
+- code: |
+    df = client.indicators.list()
+    print(f"Total indicators: {len(df)}")
+    df.head(10)
+- markdown: |
+    ## Search by name
+
+    Use `search()` for case-insensitive substring matching:
+- code: |
+    client.indicators.search("precio")
+- code: |
+    client.indicators.search("demanda")
+- markdown: |
+    ## Inspect a specific indicator
+
+    `get()` returns a handle with metadata and the `.historical()` method:
+- code: |
+    handle = client.indicators.get(600)
+    print(f"ID:   {handle.id}")
+    print(f"Name: {handle.name}")
+- markdown: |
+    ### Available geographies
+- code: |
+    handle.geos_dataframe()
