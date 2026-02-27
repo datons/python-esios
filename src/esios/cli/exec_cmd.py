@@ -75,18 +75,15 @@ def _render(result, format: str, output: str | None) -> None:
         elif format == "json":
             text = result.to_json(orient="records", indent=2, date_format="iso")
         else:
-            # Rich table
+            # Rich table — always show index
             table = Table()
-            if result.index.name or result.index.names != [None]:
-                idx_name = result.index.name or "index"
-                table.add_column(str(idx_name), style="cyan")
+            idx_name = result.index.name or ""
+            table.add_column(str(idx_name), style="cyan")
             for col in result.columns:
                 table.add_column(str(col))
 
             for idx, row in result.head(100).iterrows():
-                values = []
-                if result.index.name or result.index.names != [None]:
-                    values.append(str(idx))
+                values = [str(idx)]
                 values += [_fmt(row[c]) for c in result.columns]
                 table.add_row(*values)
 

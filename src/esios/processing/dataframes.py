@@ -28,9 +28,10 @@ def to_dataframe(
         df = df.set_index("datetime")
         df.index = df.index.tz_convert(timezone)
 
-    # Drop auxiliary time columns
-    time_cols = [c for c in df.columns if "time" in c.lower() and c != "datetime"]
-    df = df.drop(columns=time_cols, errors="ignore")
+    # Drop auxiliary columns that clutter the output
+    drop_cols = [c for c in df.columns if "time" in c.lower() and c != "datetime"]
+    drop_cols += [c for c in df.columns if c in ("geo_id", "geo_name")]
+    df = df.drop(columns=drop_cols, errors="ignore")
 
     return df
 
