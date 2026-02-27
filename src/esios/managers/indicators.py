@@ -34,6 +34,69 @@ class IndicatorHandle:
     def _cache(self) -> CacheStore:
         return self._manager._client.cache
 
+    @property
+    def geos(self) -> list[dict[str, Any]]:
+        """Available geographies for this indicator.
+
+        Returns a list of ``{"geo_id": int, "geo_name": str}`` dicts.
+        """
+        return self.metadata.get("geos", [])
+
+    def _build_geo_map(self) -> dict[str, str]:
+        """Map geo_id (as string column name) → geo_name."""
+        return {str(g["geo_id"]): g["geo_name"] for g in self.geos}
+
+    def _enrich_geo_map(self, values: list[dict]) -> None:
+        """Learn geo_id → geo_name mappings from API response values.
+
+        The indicator metadata may not list all geos (e.g. 600 omits
+        Países Bajos). This enriches the metadata from actual data.
+        """
+        known_ids = {g["geo_id"] for g in self.geos}
+        for v in values:
+            gid = v.get("geo_id")
+            gname = v.get("geo_name")
+            if gid is not None and gname and gid not in known_ids:
+                self.metadata.setdefault("geos", []).append(
+                    {"geo_id": gid, "geo_name": gname}
+                )
+                known_ids.add(gid)
+
+    def geos_dataframe(self) -> pd.DataFrame:
+        """Available geographies as a DataFrame with geo_id and geo_name columns."""
+        geos = self.geos
+        if not geos:
+            return pd.DataFrame(columns=["geo_id", "geo_name"])
+        return pd.DataFrame(geos)
+
+    def resolve_geo(self, ref: str | int) -> int:
+        """Resolve a geo reference (ID or name) to a geo_id.
+
+        Accepts:
+        - An integer geo_id (returned as-is)
+        - A string that is a valid integer (parsed and returned)
+        - A geo_name string (case-insensitive substring match)
+
+        Raises ValueError if the name doesn't match any known geo.
+        """
+        if isinstance(ref, int):
+            return ref
+        try:
+            return int(ref)
+        except (ValueError, TypeError):
+            pass
+
+        ref_lower = ref.lower()
+        for geo in self.geos:
+            if ref_lower in geo.get("geo_name", "").lower():
+                return geo["geo_id"]
+
+        available = [g.get("geo_name", str(g["geo_id"])) for g in self.geos]
+        raise ValueError(
+            f"No geo matching {ref!r} for indicator {self.id}. "
+            f"Available: {', '.join(available)}"
+        )
+
     def historical(
         self,
         start: str,
@@ -45,12 +108,15 @@ class IndicatorHandle:
         geo_agg: str | None = None,
         time_trunc: str | None = None,
         geo_trunc: str | None = None,
-        column_name: str = "id",
     ) -> pd.DataFrame:
         """Fetch historical values as a DataFrame with DatetimeIndex.
 
         Uses local parquet cache when enabled. Only fetches missing date ranges
         from the API. Automatically chunks requests exceeding ~3 weeks.
+
+        When multiple geo_ids are present (e.g. indicator 600 returns data for
+        several countries), the result is pivoted so each geo becomes a column
+        named by its geo_name. Use *geo_ids* to filter to specific geos.
         """
         base_params: dict[str, Any] = {
             "locale": locale,
@@ -69,26 +135,39 @@ class IndicatorHandle:
         start_date = pd.to_datetime(start)
         end_date = pd.to_datetime(end)
 
-        # Determine geo_id for cache key (None if multiple or unset)
-        geo_id = geo_ids[0] if geo_ids and len(geo_ids) == 1 else None
+        # Column names in cache are geo_names — determine which to check
+        geo_map = self._build_geo_map()  # str(geo_id) → geo_name
+        if geo_ids:
+            cache_cols = [geo_map.get(str(g), str(g)) for g in geo_ids]
+        elif self.geos:
+            # No filter: expect ALL known geos to have data
+            cache_cols = [g["geo_name"] for g in self.geos]
+        else:
+            cache_cols = None
 
         # -- Cache-aware fetch -------------------------------------------------
         cache = self._cache
         use_cache = cache.config.enabled and not time_agg and not geo_agg
 
+        # For read: only filter columns when specific geos requested
+        read_cols = cache_cols if geo_ids else None
+
         if use_cache:
-            cached_df = cache.read("indicators", self.id, start_date, end_date, geo_id=geo_id)
-            gaps = cache.find_gaps(cached_df, start_date, end_date)
+            cached_df = cache.read(
+                "indicators", self.id, start_date, end_date, columns=read_cols,
+            )
+            gaps = cache.find_gaps(
+                cached_df, start_date, end_date, columns=cache_cols,
+            )
 
             if not gaps:
                 logger.debug("Cache hit for indicator %d [%s → %s]", self.id, start, end)
-                df = cached_df
-                if column_name in self.metadata and column_name != "value":
-                    label = str(self.metadata[column_name])
-                    df.rename(columns={"value": label}, inplace=True)
-                return df
+                return self._finalize(cached_df)
 
-            logger.debug("Cache partial — fetching %d gap(s) for indicator %d", len(gaps), self.id)
+            logger.debug(
+                "Cache partial — fetching %d gap(s) for indicator %d",
+                len(gaps), self.id,
+            )
         else:
             from esios.cache import DateRange
             gaps = [DateRange(start_date, end_date)]
@@ -112,42 +191,83 @@ class IndicatorHandle:
                 all_values.extend(data.get("indicator", {}).get("values", []))
                 current = chunk_end + timedelta(days=1)
 
-        new_df = self._to_dataframe(all_values, column_name="value")
+        # Learn any new geo mappings from the response
+        self._enrich_geo_map(all_values)
 
-        # -- Merge with cache and persist --------------------------------------
-        if use_cache and not new_df.empty:
-            cache.write("indicators", self.id, new_df, geo_id=geo_id)
+        # Convert API response to wide format for cache
+        new_wide = self._to_wide(all_values)
 
-        # Combine cached + new (use string slicing to avoid tz-naive/aware mismatch)
-        if use_cache and not cached_df.empty and not new_df.empty:
-            result = pd.concat([cached_df, new_df])
-            result = result[~result.index.duplicated(keep="last")].sort_index()
+        # -- Persist to cache --------------------------------------------------
+        if use_cache and not new_wide.empty:
+            cache.write("indicators", self.id, new_wide)
+
+        # Combine cached + new
+        if use_cache and not cached_df.empty and not new_wide.empty:
+            result = new_wide.combine_first(cached_df).sort_index()
             result = result[start:end]
-        elif not new_df.empty:
-            result = new_df
+        elif not new_wide.empty:
+            result = new_wide
         elif use_cache:
             result = cached_df
         else:
             result = pd.DataFrame()
 
-        # Rename column
-        if column_name in self.metadata and column_name != "value" and "value" in result.columns:
-            label = str(self.metadata[column_name])
-            result.rename(columns={"value": label}, inplace=True)
+        # Select only requested geo columns
+        if read_cols and not result.empty:
+            existing = [c for c in read_cols if c in result.columns]
+            if existing:
+                result = result[existing]
 
-        return result
+        return self._finalize(result)
 
-    def _to_dataframe(self, data: list[dict], column_name: str = "value") -> pd.DataFrame:
-        """Convert raw value dicts to a DataFrame with Europe/Madrid DatetimeIndex."""
-        if not data:
+    def _to_wide(self, values: list[dict]) -> pd.DataFrame:
+        """Convert raw API value dicts to wide-format DataFrame.
+
+        Columns are geo_names (e.g. "España", "Portugal"). For single-geo
+        or no-geo indicators, the column is "value".
+        """
+        if not values:
             return pd.DataFrame()
 
-        df = to_dataframe(data, timezone=TIMEZONE)
+        df = to_dataframe(values, timezone=TIMEZONE, pivot_geo=False)
 
-        # Rename 'value' column using indicator metadata if requested
-        if column_name in self.metadata and column_name != "value":
-            label = str(self.metadata[column_name])
-            df.rename(columns={"value": label}, inplace=True)
+        if "geo_id" in df.columns and df["geo_id"].nunique() >= 1:
+            # Use geo_name as column label, fall back to str(geo_id)
+            col_key = "geo_name" if "geo_name" in df.columns else "geo_id"
+
+            if df.index.name == "datetime":
+                df = df.reset_index()
+            pivot = df.pivot_table(
+                index="datetime",
+                columns=col_key,
+                values="value",
+                aggfunc="first",
+            )
+            pivot.columns = [str(c) for c in pivot.columns]
+            pivot.columns.name = None
+            pivot.index.name = "datetime"
+            return pivot.sort_index()
+
+        # No geo column — drop geo cols if present, keep "value"
+        geo_drop = [c for c in df.columns if c in ("geo_id", "geo_name")]
+        df = df.drop(columns=geo_drop, errors="ignore")
+        return df
+
+    def _finalize(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Prepare DataFrame for user-facing output.
+
+        Single-column DataFrames get the indicator ID as column name.
+        Multi-column DataFrames already have geo_name labels from _to_wide().
+        """
+        if df.empty:
+            return df
+
+        if len(df.columns) == 1:
+            col = df.columns[0]
+            if col == "value":
+                df = df.rename(columns={"value": str(self.id)})
+            # For single-geo selection, keep the geo_name as column name
+        # Multi-geo: columns are already geo_names from _to_wide()
 
         return df
 
@@ -193,9 +313,12 @@ class IndicatorsManager(BaseManager):
         for iid in indicator_ids:
             handle = self.get(iid)
             df = handle.historical(start, end, **kwargs)
-            # Use the 'value' column, rename to indicator name or ID
-            col = "value" if "value" in df.columns else df.columns[0]
-            frames[handle.name or str(iid)] = df[col]
+            col = df.columns[0] if len(df.columns) == 1 else None
+            if col:
+                frames[handle.name or str(iid)] = df[col]
+            else:
+                # Multi-geo: take first column or all
+                frames[handle.name or str(iid)] = df.iloc[:, 0]
 
         if not frames:
             return pd.DataFrame()

@@ -28,6 +28,55 @@ class TestToDataframe:
         assert len(df) == 2
         assert "value" in df.columns
 
+    def test_single_geo_drops_geo_columns(self):
+        """Single geo_id should drop geo columns and return flat DataFrame."""
+        data = [
+            {"value": 100, "datetime": "2025-01-01T00:00:00Z", "geo_id": 3, "geo_name": "España"},
+            {"value": 200, "datetime": "2025-01-01T01:00:00Z", "geo_id": 3, "geo_name": "España"},
+        ]
+        df = to_dataframe(data)
+        assert "geo_id" not in df.columns
+        assert "geo_name" not in df.columns
+        assert "value" in df.columns
+        assert len(df) == 2
+
+    def test_multi_geo_pivots(self):
+        """Multiple geo_ids should pivot so each geo becomes a column."""
+        data = [
+            {"value": 100, "datetime": "2025-01-01T00:00:00Z", "geo_id": 3, "geo_name": "España"},
+            {"value": 110, "datetime": "2025-01-01T00:00:00Z", "geo_id": 1, "geo_name": "Portugal"},
+            {"value": 200, "datetime": "2025-01-01T01:00:00Z", "geo_id": 3, "geo_name": "España"},
+            {"value": 210, "datetime": "2025-01-01T01:00:00Z", "geo_id": 1, "geo_name": "Portugal"},
+        ]
+        df = to_dataframe(data)
+        assert "España" in df.columns
+        assert "Portugal" in df.columns
+        assert len(df) == 2
+        assert df.loc[df.index[0], "España"] == 100
+        assert df.loc[df.index[0], "Portugal"] == 110
+
+    def test_multi_geo_no_pivot_when_disabled(self):
+        """pivot_geo=False should keep raw format."""
+        data = [
+            {"value": 100, "datetime": "2025-01-01T00:00:00Z", "geo_id": 3, "geo_name": "España"},
+            {"value": 110, "datetime": "2025-01-01T00:00:00Z", "geo_id": 1, "geo_name": "Portugal"},
+        ]
+        df = to_dataframe(data, pivot_geo=False)
+        assert "geo_id" in df.columns
+        assert "geo_name" in df.columns
+        assert "value" in df.columns
+        assert len(df) == 2
+
+    def test_multi_geo_falls_back_to_geo_id(self):
+        """Without geo_name, should use geo_id as column names."""
+        data = [
+            {"value": 100, "datetime": "2025-01-01T00:00:00Z", "geo_id": 3},
+            {"value": 110, "datetime": "2025-01-01T00:00:00Z", "geo_id": 1},
+        ]
+        df = to_dataframe(data)
+        assert 3 in df.columns or "3" in df.columns
+        assert 1 in df.columns or "1" in df.columns
+
 
 class TestConvertTimezone:
     def test_convert(self):

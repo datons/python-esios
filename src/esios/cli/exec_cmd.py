@@ -15,6 +15,7 @@ def exec_command(
     start: str = typer.Option(..., "--start", "-s", help="Start date (YYYY-MM-DD)"),
     end: str = typer.Option(..., "--end", "-e", help="End date (YYYY-MM-DD)"),
     expr: str = typer.Option("df", "--expr", "-x", help="Python expression to evaluate (df, pd, np available)"),
+    geo: Optional[list[str]] = typer.Option(None, "--geo", "-g", help="Filter by geo ID or name (e.g. --geo 3 or --geo España)"),
     format: str = typer.Option("table", "--format", "-f", help="Output format: table, csv, json"),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Output file path"),
     token: Optional[str] = typer.Option(None, "--token", "-t", help="ESIOS API key"),
@@ -24,11 +25,16 @@ def exec_command(
     The fetched data is available as `df` (pandas DataFrame).
     `pd` (pandas) and `np` (numpy) are also available.
 
+    When an indicator has multiple geographies (e.g. 600 = spot price for
+    several countries), the DataFrame columns are the geo names. Use --geo
+    to filter to specific geo_id(s).
+
     \b
     Examples:
-        esios exec 600 -s 2025-01-01 -e 2025-01-31 -x "df.describe()"
-        esios exec 600 -s 2025-01-01 -e 2025-01-31 -x "df.resample('D').mean()"
-        esios exec 600 10034 -s 2025-01-01 -e 2025-01-31 -x "df.corr()"
+        esios indicators exec 600 -s 2025-01-01 -e 2025-01-31 -x "df.describe()"
+        esios indicators exec 600 -s 2025-01-01 -e 2025-01-31 --geo 3 -x "df.describe()"
+        esios indicators exec 600 -s 2025-01-01 -e 2025-01-31 -x "df.resample('D').mean()"
+        esios indicators exec 600 10034 -s 2025-01-01 -e 2025-01-31 -x "df.corr()"
     """
     import numpy as np
     import pandas as pd
@@ -37,12 +43,23 @@ def exec_command(
 
     client = get_client(token)
 
+    # Resolve geo references (IDs or names) for the first indicator
+    geo_ids = None
+    if geo:
+        handle = client.indicators.get(indicator_ids[0])
+        try:
+            geo_ids = [handle.resolve_geo(ref) for ref in geo]
+        except ValueError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(1)
+
     # Fetch data
     if len(indicator_ids) == 1:
-        handle = client.indicators.get(indicator_ids[0])
-        df = handle.historical(start, end)
+        if not geo_ids:
+            handle = client.indicators.get(indicator_ids[0])
+        df = handle.historical(start, end, geo_ids=geo_ids)
     else:
-        df = client.indicators.compare(indicator_ids, start, end)
+        df = client.indicators.compare(indicator_ids, start, end, geo_ids=geo_ids)
 
     if df.empty:
         typer.echo("No data returned.")

@@ -3,6 +3,19 @@
 Caches indicator data as parquet files, fetching only missing date ranges
 on subsequent requests. Historical electricity data is immutable once
 published, so caching is safe and enabled by default.
+
+Storage layout::
+
+    {cache_dir}/indicators/{indicator_id}.parquet
+
+Each indicator is a single parquet file in wide format: the DatetimeIndex
+holds timestamps, and columns are geo_ids (integers). For single-geo
+indicators, there is one column. For multi-geo indicators (e.g. spot
+prices across countries), each geo_id gets its own column. NaN cells
+indicate that a particular geo has not been fetched for that time range.
+
+Gap detection is per-column: requesting ``--geo 3`` checks whether column
+``3`` has data for the requested range, not whether any column does.
 """
 
 from __future__ import annotations
@@ -59,12 +72,8 @@ class CacheStore:
     def _indicator_dir(self, endpoint: str, indicator_id: int) -> Path:
         return self.config.cache_dir / endpoint / str(indicator_id)
 
-    def _parquet_path(
-        self, endpoint: str, indicator_id: int, geo_id: int | None = None
-    ) -> Path:
-        directory = self._indicator_dir(endpoint, indicator_id)
-        filename = f"{geo_id}.parquet" if geo_id is not None else "_all.parquet"
-        return directory / filename
+    def _parquet_path(self, endpoint: str, indicator_id: int) -> Path:
+        return self.config.cache_dir / endpoint / f"{indicator_id}.parquet"
 
     def archive_dir(self, archive_id: int, name: str, date_key: str) -> Path:
         """Resolve the cache path for an archive download.
@@ -86,10 +95,16 @@ class CacheStore:
         indicator_id: int,
         start: pd.Timestamp,
         end: pd.Timestamp,
-        geo_id: int | None = None,
+        *,
+        columns: list[str] | None = None,
     ) -> pd.DataFrame:
-        """Read cached data for a date range. Returns empty DataFrame on miss."""
-        path = self._parquet_path(endpoint, indicator_id, geo_id)
+        """Read cached data for a date range.
+
+        The file is in wide format (columns = geo_ids or "value").
+        When *columns* is given, only those columns are returned.
+        Returns empty DataFrame on cache miss.
+        """
+        path = self._parquet_path(endpoint, indicator_id)
         if not path.exists():
             return pd.DataFrame()
 
@@ -103,12 +118,30 @@ class CacheStore:
         if df.empty or not isinstance(df.index, pd.DatetimeIndex):
             return pd.DataFrame()
 
-        # Align tz for slicing — ensure start/end match the index timezone
+        df = self._slice(df, start, end)
+
+        if columns:
+            # Only return requested columns (geo_ids) that exist in cache
+            existing = [c for c in columns if c in df.columns]
+            if not existing:
+                return pd.DataFrame()
+            df = df[existing]
+
+        return df
+
+    def _slice(
+        self, df: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp
+    ) -> pd.DataFrame:
+        """Slice a DataFrame by [start, end], handling timezone alignment."""
         if df.index.tz is not None:
             if start.tz is None:
                 start = start.tz_localize(df.index.tz)
             if end.tz is None:
                 end = end.tz_localize(df.index.tz)
+
+        # When end is a date-level timestamp (midnight), extend to end of day
+        if end.hour == 0 and end.minute == 0 and end.second == 0:
+            end = end + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
 
         return df[start:end]
 
@@ -117,13 +150,18 @@ class CacheStore:
         endpoint: str,
         indicator_id: int,
         df: pd.DataFrame,
-        geo_id: int | None = None,
     ) -> None:
-        """Merge new data with existing cache and persist."""
+        """Merge new wide-format data with existing cache and persist.
+
+        *df* should already be in wide format (columns = geo_ids or "value",
+        index = DatetimeIndex). New data is merged with existing using
+        ``combine_first`` so that new values fill in NaN cells without
+        overwriting existing data, then overlapping rows use the new values.
+        """
         if df.empty:
             return
 
-        path = self._parquet_path(endpoint, indicator_id, geo_id)
+        path = self._parquet_path(endpoint, indicator_id)
         path.parent.mkdir(parents=True, exist_ok=True)
 
         # Read existing and merge
@@ -135,8 +173,10 @@ class CacheStore:
                 logger.warning("Corrupted cache at %s — overwriting.", path)
 
         if not existing.empty:
-            merged = pd.concat([existing, df])
-            merged = merged[~merged.index.duplicated(keep="last")].sort_index()
+            # New data takes priority for overlapping cells,
+            # existing data fills gaps where new has NaN
+            merged = df.combine_first(existing)
+            merged = merged.sort_index()
         else:
             merged = df.sort_index()
 
@@ -159,9 +199,15 @@ class CacheStore:
         cached_df: pd.DataFrame,
         start: pd.Timestamp,
         end: pd.Timestamp,
+        *,
+        columns: list[str] | None = None,
         recent_ttl_hours: int | None = None,
     ) -> list[DateRange]:
         """Find date ranges not covered by cached data.
+
+        When *columns* is given, checks coverage for those specific columns.
+        A row counts as "covered" only if all requested columns have non-NaN
+        values. This enables per-geo gap detection.
 
         Also marks data within ``recent_ttl_hours`` of now as a gap
         (needs re-fetch since it may have been updated).
@@ -172,8 +218,22 @@ class CacheStore:
         if cached_df.empty:
             return [DateRange(start, end)]
 
+        # If specific columns requested, check only those (per-geo gap detection)
+        if columns:
+            # If any requested column is completely missing, it's a full gap
+            missing = [c for c in columns if c not in cached_df.columns]
+            if missing:
+                return [DateRange(start, end)]
+            # Rows where ALL requested columns have data
+            mask = cached_df[columns].notna().all(axis=1)
+            effective_df = cached_df[mask]
+            if effective_df.empty:
+                return [DateRange(start, end)]
+        else:
+            effective_df = cached_df
+
         # Normalize to UTC for comparison
-        idx = cached_df.index
+        idx = effective_df.index
         if idx.tz is None:
             idx = idx.tz_localize("UTC")
         else:
@@ -219,24 +279,34 @@ class CacheStore:
         count = 0
 
         if endpoint and indicator_id is not None:
-            target = self._indicator_dir(endpoint, indicator_id)
+            # Single indicator: could be a file or a directory (archives)
+            path_file = self._parquet_path(endpoint, indicator_id)
+            path_dir = self._indicator_dir(endpoint, indicator_id)
+            if path_file.exists():
+                path_file.unlink()
+                count = 1
+            if path_dir.exists():
+                for f in path_dir.rglob("*"):
+                    if f.is_file():
+                        f.unlink()
+                        count += 1
+                _remove_empty_dirs(path_dir)
         elif endpoint:
             target = self.config.cache_dir / endpoint
+            if target.exists():
+                for f in target.rglob("*"):
+                    if f.is_file():
+                        f.unlink()
+                        count += 1
+                _remove_empty_dirs(target)
         else:
             target = self.config.cache_dir
-
-        if not target.exists():
-            return 0
-
-        if target.is_dir():
-            for f in target.rglob("*"):
-                if f.is_file():
-                    f.unlink()
-                    count += 1
-            _remove_empty_dirs(target)
-        elif target.is_file():
-            target.unlink()
-            count = 1
+            if target.exists():
+                for f in target.rglob("*"):
+                    if f.is_file():
+                        f.unlink()
+                        count += 1
+                _remove_empty_dirs(target)
 
         return count
 
@@ -252,7 +322,6 @@ class CacheStore:
         # Per-endpoint breakdown
         endpoints: dict[str, int] = {}
         for f in all_files:
-            # Path is {cache_dir}/{endpoint}/...
             try:
                 rel = f.relative_to(cache_dir)
                 ep = rel.parts[0] if rel.parts else "unknown"
