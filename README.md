@@ -10,12 +10,6 @@ Download indicators (prices, generation, demand), archives (I90 settlement files
 pip install python-esios
 ```
 
-For CLI support:
-
-```shell
-pip install "python-esios[cli]"
-```
-
 ## Configure your token
 
 Request a personal token from [REE](https://www.esios.ree.es/es/pagina/api), then:
