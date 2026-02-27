@@ -34,11 +34,13 @@ from esios.cli.indicators import indicators_app  # noqa: E402
 from esios.cli.archives import archives_app  # noqa: E402
 from esios.cli.cache_cmd import cache_app  # noqa: E402
 from esios.cli.config_cmd import config_app  # noqa: E402
+from esios.cli.exec_cmd import exec_command  # noqa: E402
 
 app.add_typer(indicators_app, name="indicators", help="Indicator operations")
 app.add_typer(archives_app, name="archives", help="Archive operations")
 app.add_typer(cache_app, name="cache", help="Cache management")
 app.add_typer(config_app, name="config", help="Configuration management")
+app.command("exec", help="Fetch data and evaluate a Python expression on it")(exec_command)
 
 
 def main() -> None:
