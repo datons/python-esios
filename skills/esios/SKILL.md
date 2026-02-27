@@ -109,7 +109,7 @@ The `--geo` flag accepts both IDs and names (case-insensitive substring match):
 ```python
 from esios import ESIOSClient
 
-client = ESIOSClient()  # reads ESIOS_API_KEY from env
+client = ESIOSClient()  # reads config file, then ESIOS_API_KEY env var
 
 # Get indicator handle
 handle = client.indicators.get(600)
@@ -158,4 +158,5 @@ print(sheet.frequency)    # "hourly" or "hourly-quarterly"
 - Date ranges > 3 weeks are auto-chunked into smaller API requests
 - Archives support skip-existing (won't re-download cached files)
 - I90 sheets detect hourly vs quarter-hourly frequency automatically
+- API token resolution: config file (`~/.config/esios/config.toml`) > `ESIOS_API_KEY` env var
 - Custom exceptions: `ESIOSError`, `AuthenticationError`, `APIResponseError`, `NetworkError`
