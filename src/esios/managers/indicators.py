@@ -50,17 +50,37 @@ class IndicatorHandle:
         """Learn geo_id → geo_name mappings from API response values.
 
         The indicator metadata may not list all geos (e.g. 600 omits
-        Países Bajos). This enriches the metadata from actual data.
+        Países Bajos). This enriches the metadata from actual data
+        and persists new mappings to the global geos registry and
+        per-indicator meta.json.
         """
         known_ids = {g["geo_id"] for g in self.geos}
+        new_geos: dict[str, str] = {}
         for v in values:
             gid = v.get("geo_id")
             gname = v.get("geo_name")
-            if gid is not None and gname and gid not in known_ids:
-                self.metadata.setdefault("geos", []).append(
-                    {"geo_id": gid, "geo_name": gname}
-                )
-                known_ids.add(gid)
+            if gid is not None and gname:
+                if gid not in known_ids:
+                    self.metadata.setdefault("geos", []).append(
+                        {"geo_id": gid, "geo_name": gname}
+                    )
+                    known_ids.add(gid)
+                new_geos[str(gid)] = gname
+
+        # Persist to global geos registry and per-indicator meta
+        cache = self._cache
+        if cache.config.enabled and new_geos:
+            cache.merge_geos(new_geos)
+            self._persist_meta()
+
+    def _persist_meta(self) -> None:
+        """Write current metadata to per-indicator meta.json."""
+        cache = self._cache
+        if not cache.config.enabled:
+            return
+        # Store a clean subset of metadata (exclude values)
+        meta = {k: v for k, v in self.metadata.items() if k != "values"}
+        cache.write_meta("indicators", self.id, meta)
 
     def geos_dataframe(self) -> pd.DataFrame:
         """Available geographies as a DataFrame with geo_id and geo_name columns."""
@@ -77,6 +97,9 @@ class IndicatorHandle:
         - A string that is a valid integer (parsed and returned)
         - A geo_name string (case-insensitive substring match)
 
+        Searches indicator-level geos first, then falls back to the
+        global geos registry for names not in metadata.
+
         Raises ValueError if the name doesn't match any known geo.
         """
         if isinstance(ref, int):
@@ -87,9 +110,20 @@ class IndicatorHandle:
             pass
 
         ref_lower = ref.lower()
+
+        # Search indicator-level geos
         for geo in self.geos:
             if ref_lower in geo.get("geo_name", "").lower():
                 return geo["geo_id"]
+
+        # Fall back to global geos registry
+        try:
+            global_geos = self._cache.read_geos()
+            for gid_str, gname in global_geos.items():
+                if ref_lower in gname.lower():
+                    return int(gid_str)
+        except Exception:
+            pass
 
         available = [g.get("geo_name", str(g["geo_id"])) for g in self.geos]
         raise ValueError(
@@ -275,12 +309,37 @@ class IndicatorHandle:
 class IndicatorsManager(BaseManager):
     """Manager for ``/indicators`` endpoints."""
 
+    @property
+    def _cache(self) -> CacheStore:
+        return self._client.cache
+
     def list(self) -> pd.DataFrame:
-        """List all available indicators as a DataFrame."""
+        """List all available indicators as a DataFrame.
+
+        Uses the cached catalog when fresh (within catalog_ttl_hours).
+        """
+        cache = self._cache
+        if cache.config.enabled:
+            cached = cache.read_catalog("indicators")
+            if cached is not None:
+                logger.debug("Using cached indicator catalog (%d items)", len(cached))
+                return pd.DataFrame(cached)
+
+        # Fetch from API
         data = self._get("indicators")
         indicators = data.get("indicators", [])
         for ind in indicators:
             ind["description"] = self._html_to_text(ind.get("description", ""))
+
+        # Persist catalog
+        if cache.config.enabled and indicators:
+            # Store lightweight catalog (id, name, short_name only)
+            catalog_items = [
+                {"id": ind["id"], "name": ind.get("name", ""), "short_name": ind.get("short_name", "")}
+                for ind in indicators
+            ]
+            cache.write_catalog("indicators", catalog_items)
+
         return pd.DataFrame(indicators)
 
     def search(self, query: str) -> pd.DataFrame:
@@ -292,11 +351,33 @@ class IndicatorsManager(BaseManager):
         return df[mask].reset_index(drop=True)
 
     def get(self, indicator_id: int) -> IndicatorHandle:
-        """Get an indicator by ID — returns a handle with ``.historical()``."""
+        """Get an indicator by ID — returns a handle with ``.historical()``.
+
+        Uses cached metadata when fresh (within meta_ttl_days).
+        """
+        cache = self._cache
+        if cache.config.enabled:
+            cached_meta = cache.read_meta("indicators", indicator_id)
+            if cached_meta is not None:
+                logger.debug("Using cached metadata for indicator %d", indicator_id)
+                indicator = Indicator.from_api(cached_meta)
+                return IndicatorHandle(self, indicator)
+
+        # Fetch from API
         data = self._get(f"indicators/{indicator_id}")
         raw = data.get("indicator", {})
         indicator = Indicator.from_api(raw)
-        return IndicatorHandle(self, indicator)
+        handle = IndicatorHandle(self, indicator)
+
+        # Persist metadata and geos
+        if cache.config.enabled:
+            handle._persist_meta()
+            # Merge geos into global registry
+            geo_map = handle._build_geo_map()
+            if geo_map:
+                cache.merge_geos(geo_map)
+
+        return handle
 
     def compare(
         self,
