@@ -1,7 +1,44 @@
+# Python
 __pycache__/
-.DS_Store
-python_esios.egg-info/
-*.xls
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# uv
+.venv/
+uv.lock
+
+# Environment
 .env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Generated docs
 docs/
-data
+
+# Data files (large / sensitive)
+*.xls
+*.xlsx
+data/
+
+# Legacy code (superseded by src/)
+esios_legacy/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Config with secrets
+.config/

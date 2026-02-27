@@ -1,5 +1,0 @@
-requests
-pandas
-openpyxl
-xlrd
-python-calamine
