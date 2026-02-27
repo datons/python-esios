@@ -1,51 +1,81 @@
-# A Python library to download preprocessed data from the ESIOS API (REE)
+# python-esios
 
-ESIOS API is a service provided by the Spanish electricity system operator (REE) that offers access to a wide range of data related to the electricity market in Spain.
+A Python library and CLI to query the Spanish electricity market API (ESIOS/REE).
 
-This library provides a simple interface to download and preprocess the data from the ESIOS API.
+Download indicators (prices, generation, demand), archives (I90 settlement files), and more.
 
-## Install library
+## Install
 
 ```shell
 pip install python-esios
 ```
 
-## Get token
+For CLI support:
 
-Ask for a personal token to access the ESIOS API following the [instructions from REE](https://www.esios.ree.es/es/pagina/api).
-
-## Usage
-
-### Register the token in Python
-
-```python
-TOKEN = '343sdfewe342309gjarijgwoiret834383434524...'
-TOKEN = '<YOUR_TOKEN>'
+```shell
+pip install "python-esios[cli]"
 ```
 
-Then, set the token in the environment variable `ESIOS_API_KEY`.
+## Configure your token
 
-```python
-import os
-os.environ['ESIOS_API_KEY'] = TOKEN
+Request a personal token from [REE](https://www.esios.ree.es/es/pagina/api), then:
+
+```shell
+esios config set token YOUR_TOKEN
 ```
 
-### Instantiate the client
+This stores the token in `~/.config/esios/config.toml`. Alternatively, set the `ESIOS_API_KEY` environment variable.
+
+## CLI usage
+
+```shell
+# Search indicators
+esios indicators search "precio"
+
+# Download historical data
+esios indicators history 600 --start 2025-01-01 --end 2025-01-31
+
+# Export to CSV
+esios indicators history 600 -s 2025-01-01 -e 2025-01-31 --format csv --output prices.csv
+
+# List archives
+esios archives list
+
+# Download I90 settlement files
+esios archives download 1 --start 2025-01-01 --end 2025-01-31
+
+# Cache status
+esios cache status
+```
+
+## Python usage
 
 ```python
 from esios import ESIOSClient
+
 client = ESIOSClient()
+
+# Get indicator data as DataFrame
+handle = client.indicators.get(600)  # PVPC price
+df = handle.historical("2025-01-01", "2025-01-31")
+
+# Search indicators
+results = client.indicators.search("precio")
+
+# Download archives
+client.archives.download(1, start="2025-01-01", end="2025-01-31", output_dir="./data")
 ```
 
-### Access the endpoint
+## Common indicators
 
-```python
-endpoint = client.endpoint(name=?)
-```
+| ID | Name | Description |
+|----|------|-------------|
+| 600 | PVPC | Voluntary price for small consumers |
+| 1001 | Day-ahead price | OMIE spot market price |
+| 10033 | Demand | Real-time electricity demand |
+| 10034 | Wind generation | Real-time wind generation |
+| 10035 | Solar PV generation | Real-time solar generation |
 
-In the tutorials below, you will learn how to download, preprocess, and visualize the data from the following endpoints:
+## License
 
-- [Indicators](https://github.com/datons/python-esios/blob/main/examples/30_Indicators/0_Steps/B1_Download.ipynb)
-- [Archives](https://github.com/datons/python-esios/blob/main/examples/20_Archives/0_Steps/B1_Download.ipynb)
-
-pip install --force-reinstall -e "git+ssh://git@github.com/jsulopzs/python-esios-private.git@feature/con-244-fix-i90-download-on-python-esios-private#egg=python-esios-private"
+GPL-3.0
