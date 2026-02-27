@@ -23,9 +23,13 @@ def cache_status():
     """Show cache path, file count, and total size."""
     store = _get_cache()
     info = store.status()
-    console.print(f"Path:  {info['path']}")
-    console.print(f"Files: {info['files']}")
-    console.print(f"Size:  {info['size_mb']} MB")
+    console.print(f"Path:      {info['path']}")
+    console.print(f"Files:     {info['files']}")
+    console.print(f"Size:      {info['size_mb']} MB")
+    if info.get("endpoints"):
+        console.print("Breakdown:")
+        for ep, count in sorted(info["endpoints"].items()):
+            console.print(f"  {ep}: {count} files")
 
 
 @cache_app.command("path")
@@ -37,16 +41,16 @@ def cache_path():
 
 @cache_app.command("clear")
 def cache_clear(
-    indicator: Optional[int] = typer.Option(None, "--indicator", "-i", help="Clear only this indicator ID"),
-    endpoint: str = typer.Option("indicators", "--endpoint", "-e", help="Endpoint: indicators, offer_indicators"),
+    indicator: Optional[int] = typer.Option(None, "--indicator", "-i", help="Clear a specific indicator/archive ID"),
+    endpoint: str = typer.Option("indicators", "--endpoint", "-e", help="Endpoint: indicators, offer_indicators, archives"),
     all_: bool = typer.Option(False, "--all", "-a", help="Clear entire cache"),
 ):
-    """Remove cached parquet files."""
+    """Remove cached files (indicators, archives, or all)."""
     store = _get_cache()
 
     if all_:
         count = store.clear()
-    elif indicator:
+    elif indicator is not None:
         count = store.clear(endpoint=endpoint, indicator_id=indicator)
     else:
         count = store.clear(endpoint=endpoint)

@@ -66,6 +66,18 @@ class CacheStore:
         filename = f"{geo_id}.parquet" if geo_id is not None else "_all.parquet"
         return directory / filename
 
+    def archive_dir(self, archive_id: int, name: str, date_key: str) -> Path:
+        """Resolve the cache path for an archive download.
+
+        Returns: ``{cache_dir}/archives/{archive_id}/{name}_{date_key}/``
+        """
+        return self.config.cache_dir / "archives" / str(archive_id) / f"{name}_{date_key}"
+
+    def archive_exists(self, archive_id: int, name: str, date_key: str) -> bool:
+        """Check if an archive is already cached (folder exists with files)."""
+        folder = self.archive_dir(archive_id, name, date_key)
+        return folder.exists() and any(folder.iterdir())
+
     # -- Read / Write ----------------------------------------------------------
 
     def read(
@@ -198,15 +210,15 @@ class CacheStore:
     # -- Maintenance -----------------------------------------------------------
 
     def clear(self, endpoint: str | None = None, indicator_id: int | None = None) -> int:
-        """Remove cached files. Returns number of files removed.
+        """Remove cached files. Returns number of files/folders removed.
 
         - No args: clear everything
-        - endpoint only: clear all indicators for that endpoint
-        - endpoint + indicator_id: clear one indicator
+        - endpoint only: clear all data for that endpoint
+        - endpoint + indicator_id: clear one indicator/archive
         """
         count = 0
 
-        if endpoint and indicator_id:
+        if endpoint and indicator_id is not None:
             target = self._indicator_dir(endpoint, indicator_id)
         elif endpoint:
             target = self.config.cache_dir / endpoint
@@ -217,10 +229,10 @@ class CacheStore:
             return 0
 
         if target.is_dir():
-            for f in target.rglob("*.parquet"):
-                f.unlink()
-                count += 1
-            # Clean up empty dirs
+            for f in target.rglob("*"):
+                if f.is_file():
+                    f.unlink()
+                    count += 1
             _remove_empty_dirs(target)
         elif target.is_file():
             target.unlink()
@@ -229,18 +241,30 @@ class CacheStore:
         return count
 
     def status(self) -> dict:
-        """Return cache statistics."""
+        """Return cache statistics (indicators + archives)."""
         cache_dir = self.config.cache_dir
         if not cache_dir.exists():
-            return {"path": str(cache_dir), "files": 0, "size_mb": 0.0}
+            return {"path": str(cache_dir), "files": 0, "size_mb": 0.0, "endpoints": {}}
 
-        files = list(cache_dir.rglob("*.parquet"))
-        total_size = sum(f.stat().st_size for f in files)
+        all_files = [f for f in cache_dir.rglob("*") if f.is_file()]
+        total_size = sum(f.stat().st_size for f in all_files)
+
+        # Per-endpoint breakdown
+        endpoints: dict[str, int] = {}
+        for f in all_files:
+            # Path is {cache_dir}/{endpoint}/...
+            try:
+                rel = f.relative_to(cache_dir)
+                ep = rel.parts[0] if rel.parts else "unknown"
+                endpoints[ep] = endpoints.get(ep, 0) + 1
+            except ValueError:
+                pass
 
         return {
             "path": str(cache_dir),
-            "files": len(files),
+            "files": len(all_files),
             "size_mb": round(total_size / (1024 * 1024), 2),
+            "endpoints": endpoints,
         }
 
 

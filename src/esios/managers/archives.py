@@ -1,10 +1,14 @@
-"""Archive manager — list, configure, download with date-range iteration."""
+"""Archive manager — list, configure, download with date-range iteration.
+
+Archives are cached in ``{cache_dir}/archives/{archive_id}/{name}_{datekey}/``.
+When ``output_dir`` is specified, files are copied there from the cache.
+"""
 
 from __future__ import annotations
 
 import logging
+import shutil
 from datetime import timedelta
-from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -34,6 +38,10 @@ class ArchiveHandle:
 
     def __repr__(self) -> str:
         return f"<ArchiveHandle id={self.id} name={self.name!r}>"
+
+    @property
+    def _cache(self):
+        return self._manager._client.cache
 
     def configure(
         self,
@@ -66,20 +74,22 @@ class ArchiveHandle:
         start: str | None = None,
         end: str | None = None,
         date: str | None = None,
-        output_dir: str | Path = ".",
+        output_dir: str | Path | None = None,
         date_type: str = "datos",
-    ) -> None:
+    ) -> Path:
         """Download archive files for a single date or date range.
 
-        Skips dates whose output folder already contains files.
-        """
-        output_dir = Path(output_dir)
+        Files are always stored in the cache directory. If ``output_dir`` is
+        provided, a copy is placed there as well.
 
+        Returns the cache directory where files were stored.
+        """
         if date and not (start and end):
-            # Single date download
             self.configure(date=date, date_type=date_type)
-            self._download_single(output_dir)
-            return
+            cache_folder = self._download_single()
+            if output_dir:
+                self._copy_to_output(cache_folder, Path(output_dir))
+            return cache_folder
 
         if not (start and end):
             raise ValueError("Provide 'date' or both 'start' and 'end'.")
@@ -87,27 +97,28 @@ class ArchiveHandle:
         # Date-range iteration
         start_date = pd.to_datetime(start)
         end_date = pd.to_datetime(end)
-        base_dir = output_dir / self.name
-        base_dir.mkdir(parents=True, exist_ok=True)
 
         horizon = self.metadata.get("archive", {}).get("horizon", "D")
         archive_type = self.metadata.get("archive", {}).get("archive_type", "zip")
         current = start_date
+        last_folder: Path | None = None
 
         while current <= end_date:
             if horizon == "M":
                 key = current.strftime("%Y%m")
-                folder = base_dir / f"{self.name}_{key}"
                 next_month = (current.replace(day=1) + timedelta(days=32)).replace(day=1)
                 chunk_end = min(next_month - timedelta(days=1), end_date)
             else:
                 key = current.strftime("%Y%m%d")
-                folder = base_dir / f"{self.name}_{key}"
                 chunk_end = current
 
-            # Skip existing
-            if folder.exists() and any(folder.glob("*")):
-                logger.info("Skipping already downloaded: %s", folder)
+            # Skip if already cached
+            if self._cache.config.enabled and self._cache.archive_exists(self.id, self.name, key):
+                cache_folder = self._cache.archive_dir(self.id, self.name, key)
+                logger.info("Cache hit: %s", cache_folder)
+                if output_dir:
+                    self._copy_to_output(cache_folder, Path(output_dir))
+                last_folder = cache_folder
                 current = chunk_end + timedelta(days=1)
                 continue
 
@@ -122,40 +133,67 @@ class ArchiveHandle:
                 current = chunk_end + timedelta(days=1)
                 continue
 
-            self._write_content(content, folder, key, archive_type)
+            # Write to cache
+            cache_folder = self._cache.archive_dir(self.id, self.name, key)
+            self._write_content(content, cache_folder, key, archive_type)
+            last_folder = cache_folder
+
+            # Copy to output if requested
+            if output_dir:
+                self._copy_to_output(cache_folder, Path(output_dir))
+
             current = chunk_end + timedelta(days=1)
+
+        return last_folder or self._cache.archive_dir(self.id, self.name, "")
 
     # -- Internal helpers ------------------------------------------------------
 
-    def _download_single(self, output_dir: Path) -> None:
-        """Download for a single date (after configure)."""
+    def _download_single(self) -> Path:
+        """Download for a single date (after configure). Returns cache folder."""
         archive_data = self.metadata.get("archive", {})
         horizon = archive_data.get("horizon", "D")
         archive_type = archive_data.get("archive_type", "zip")
 
         if horizon == "M":
-            date_folder = pd.to_datetime(archive_data["date_times"][0]).strftime("%Y%m")
+            date_key = pd.to_datetime(archive_data["date_times"][0]).strftime("%Y%m")
         else:
-            date_folder = pd.to_datetime(archive_data["date"]["date"]).strftime("%Y%m%d")
+            date_key = pd.to_datetime(archive_data["date"]["date"]).strftime("%Y%m%d")
 
-        folder = output_dir / self.name / f"{self.name}_{date_folder}"
-        folder.mkdir(parents=True, exist_ok=True)
+        # Check cache first
+        if self._cache.config.enabled and self._cache.archive_exists(self.id, self.name, date_key):
+            cache_folder = self._cache.archive_dir(self.id, self.name, date_key)
+            logger.info("Cache hit: %s", cache_folder)
+            return cache_folder
 
+        cache_folder = self._cache.archive_dir(self.id, self.name, date_key)
         content = self._manager._client.download(self._download_url)
-        self._write_content(content, folder, date_folder, archive_type)
+        self._write_content(content, cache_folder, date_key, archive_type)
+        return cache_folder
 
     def _write_content(self, content: bytes, folder: Path, key: str, archive_type: str) -> None:
         """Extract zip or write xls to folder."""
+        folder.mkdir(parents=True, exist_ok=True)
         if archive_type == "zip":
-            folder.mkdir(parents=True, exist_ok=True)
             zx = ZipExtractor(content, folder)
             zx.unzip()
         elif archive_type == "xls":
-            folder.mkdir(parents=True, exist_ok=True)
             file_path = folder / f"{self.name}_{key}.xls"
             file_path.write_bytes(content)
         else:
             raise ValueError(f"Unsupported archive_type: {archive_type}")
+
+    @staticmethod
+    def _copy_to_output(cache_folder: Path, output_dir: Path) -> None:
+        """Copy cached files to a user-specified output directory."""
+        dest = output_dir / cache_folder.name
+        if dest.exists() and any(dest.iterdir()):
+            logger.info("Output already exists: %s", dest)
+            return
+        dest.mkdir(parents=True, exist_ok=True)
+        for src_file in cache_folder.iterdir():
+            if src_file.is_file():
+                shutil.copy2(src_file, dest / src_file.name)
+        logger.info("Copied to %s", dest)
 
 
 class ArchivesManager(BaseManager):
@@ -172,7 +210,7 @@ class ArchivesManager(BaseManager):
         raw = data.get("archive", {})
         archive = Archive.from_api(raw)
         handle = ArchiveHandle(self, archive)
-        handle.metadata = data  # Keep full response for configure/download
+        handle.metadata = data
         return handle
 
     def download(
@@ -182,9 +220,14 @@ class ArchivesManager(BaseManager):
         start: str | None = None,
         end: str | None = None,
         date: str | None = None,
-        output_dir: str | Path = ".",
+        output_dir: str | Path | None = None,
         date_type: str = "datos",
-    ) -> None:
-        """Convenience method: get + download in one call."""
+    ) -> Path:
+        """Convenience method: get + download in one call.
+
+        Returns the cache directory where files were stored.
+        """
         handle = self.get(archive_id)
-        handle.download(start=start, end=end, date=date, output_dir=output_dir, date_type=date_type)
+        return handle.download(
+            start=start, end=end, date=date, output_dir=output_dir, date_type=date_type,
+        )

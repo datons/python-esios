@@ -187,6 +187,46 @@ class TestCacheMaintenance:
         assert info["files"] == 0
 
 
+class TestArchiveCache:
+    def test_archive_dir_path(self, cache_store):
+        path = cache_store.archive_dir(1, "I90DIA", "20250101")
+        assert path == cache_store.config.cache_dir / "archives" / "1" / "I90DIA_20250101"
+
+    def test_archive_exists_false_when_empty(self, cache_store):
+        assert not cache_store.archive_exists(1, "I90DIA", "20250101")
+
+    def test_archive_exists_true_when_populated(self, cache_store):
+        folder = cache_store.archive_dir(1, "I90DIA", "20250101")
+        folder.mkdir(parents=True)
+        (folder / "data.xls").write_bytes(b"fake xls")
+        assert cache_store.archive_exists(1, "I90DIA", "20250101")
+
+    def test_clear_archives(self, cache_store):
+        folder = cache_store.archive_dir(1, "I90DIA", "20250101")
+        folder.mkdir(parents=True)
+        (folder / "data.xls").write_bytes(b"fake")
+        (folder / "data2.csv").write_bytes(b"fake")
+
+        count = cache_store.clear(endpoint="archives", indicator_id=1)
+        assert count == 2
+        assert not folder.exists()
+
+    def test_status_includes_archives(self, cache_store):
+        # Write an indicator parquet
+        idx = pd.date_range("2025-01-01", periods=3, freq="h", tz="Europe/Madrid")
+        cache_store.write("indicators", 600, pd.DataFrame({"value": [1, 2, 3]}, index=idx), geo_id=3)
+
+        # Write an archive file
+        folder = cache_store.archive_dir(1, "I90DIA", "20250101")
+        folder.mkdir(parents=True)
+        (folder / "data.xls").write_bytes(b"fake")
+
+        info = cache_store.status()
+        assert info["files"] == 2
+        assert "indicators" in info["endpoints"]
+        assert "archives" in info["endpoints"]
+
+
 class TestCacheConfig:
     def test_defaults(self):
         config = CacheConfig()
