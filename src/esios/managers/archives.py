@@ -76,20 +76,20 @@ class ArchiveHandle:
         date: str | None = None,
         output_dir: str | Path | None = None,
         date_type: str = "datos",
-    ) -> Path:
+    ) -> list[Path]:
         """Download archive files for a single date or date range.
 
         Files are always stored in the cache directory. If ``output_dir`` is
         provided, a copy is placed there as well.
 
-        Returns the cache directory where files were stored.
+        Returns a sorted list of downloaded/cached file paths.
         """
         if date and not (start and end):
             self.configure(date=date, date_type=date_type)
             cache_folder = self._download_single()
             if output_dir:
                 self._copy_to_output(cache_folder, Path(output_dir))
-            return cache_folder
+            return sorted(f for f in cache_folder.iterdir() if f.is_file())
 
         if not (start and end):
             raise ValueError("Provide 'date' or both 'start' and 'end'.")
@@ -101,7 +101,7 @@ class ArchiveHandle:
         horizon = self.metadata.get("archive", {}).get("horizon", "D")
         archive_type = self.metadata.get("archive", {}).get("archive_type", "zip")
         current = start_date
-        last_folder: Path | None = None
+        files: list[Path] = []
 
         while current <= end_date:
             if horizon == "M":
@@ -118,7 +118,7 @@ class ArchiveHandle:
                 logger.info("Cache hit: %s", cache_folder)
                 if output_dir:
                     self._copy_to_output(cache_folder, Path(output_dir))
-                last_folder = cache_folder
+                files.extend(f for f in cache_folder.iterdir() if f.is_file())
                 current = chunk_end + timedelta(days=1)
                 continue
 
@@ -136,7 +136,7 @@ class ArchiveHandle:
             # Write to cache
             cache_folder = self._cache.archive_dir(self.id, self.name, key)
             self._write_content(content, cache_folder, key, archive_type)
-            last_folder = cache_folder
+            files.extend(f for f in cache_folder.iterdir() if f.is_file())
 
             # Copy to output if requested
             if output_dir:
@@ -144,7 +144,7 @@ class ArchiveHandle:
 
             current = chunk_end + timedelta(days=1)
 
-        return last_folder or self._cache.archive_dir(self.id, self.name, "")
+        return sorted(files)
 
     # -- Internal helpers ------------------------------------------------------
 
@@ -199,12 +199,25 @@ class ArchiveHandle:
 class ArchivesManager(BaseManager):
     """Manager for ``/archives`` endpoints."""
 
-    def list(self) -> pd.DataFrame:
-        """List all available archives as a DataFrame."""
-        data = self._get("archives")
-        df = pd.DataFrame(data.get("archives", []))
-        if "id" in df.columns:
-            df = df.set_index("id")
+    def list(self, *, source: str = "local") -> pd.DataFrame:
+        """List all available archives as a DataFrame.
+
+        Args:
+            source: ``"local"`` (default) returns the full static catalog
+                (153 archives including I90, settlements, etc.).
+                ``"api"`` queries the ESIOS API which only returns ~24 archives.
+        """
+        if source == "api":
+            data = self._get("archives", params={"date_type": "publicacion"})
+            df = pd.DataFrame(data.get("archives", []))
+            if "id" in df.columns:
+                df = df.set_index("id")
+            return df
+
+        from esios.data.catalogs.archives import ARCHIVES_CATALOG
+
+        df = pd.DataFrame.from_dict(ARCHIVES_CATALOG, orient="index")
+        df.index.name = "id"
         return df
 
     def get(self, archive_id: int) -> ArchiveHandle:
@@ -225,10 +238,10 @@ class ArchivesManager(BaseManager):
         date: str | None = None,
         output_dir: str | Path | None = None,
         date_type: str = "datos",
-    ) -> Path:
+    ) -> list[Path]:
         """Convenience method: get + download in one call.
 
-        Returns the cache directory where files were stored.
+        Returns a sorted list of downloaded/cached file paths.
         """
         handle = self.get(archive_id)
         return handle.download(

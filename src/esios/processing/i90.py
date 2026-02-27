@@ -8,10 +8,14 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 import python_calamine
+
+if TYPE_CHECKING:
+    from esios.managers.archives import ArchiveHandle
 
 logger = logging.getLogger("esios")
 
@@ -82,6 +86,36 @@ class I90Book:
 
     def __getitem__(self, sheet_name: str) -> I90Sheet:
         return self.get_sheet(sheet_name)
+
+    @classmethod
+    def from_archive(
+        cls,
+        archive: ArchiveHandle,
+        *,
+        start: str,
+        end: str,
+    ) -> list[I90Book]:
+        """Download I90 files and parse them into I90Book objects.
+
+        Calls ``archive.download()`` (cache-aware), then parses each file.
+        Files that fail to parse are logged and skipped.
+
+        Args:
+            archive: An :class:`ArchiveHandle` from ``client.archives.get(34)``.
+            start: Start date (``"YYYY-MM-DD"``).
+            end: End date (``"YYYY-MM-DD"``).
+
+        Returns:
+            A list of successfully parsed :class:`I90Book` objects, sorted by date.
+        """
+        files = archive.download(start=start, end=end)
+        books: list[I90Book] = []
+        for f in files:
+            try:
+                books.append(cls(f))
+            except Exception as e:
+                logger.warning("Failed to parse %s: %s", f.name, e)
+        return books
 
     def __repr__(self) -> str:
         return f"<I90Book {self.path.name} sheets={len(self.sheets)}>"
@@ -192,7 +226,7 @@ class I90Sheet:
             columns_datetime = base_date + pd.to_timedelta(time_deltas, unit="m")
             columns_datetime = pd.DatetimeIndex(columns_datetime).tz_localize(
                 "Europe/Madrid", ambiguous="infer"
-            ).tz_convert("UTC")
+            )
 
             data = pd.DataFrame(self.rows[idx + 1 :], columns=columns)
 

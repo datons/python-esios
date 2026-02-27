@@ -31,6 +31,7 @@ docs/
 *.xls
 *.xlsx
 data/
+!src/esios/data/
 
 # Legacy code (superseded by src/)
 esios_legacy/
