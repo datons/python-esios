@@ -1,0 +1,15 @@
+{
+  "name": "python-esios",
+  "owner": {
+    "name": "Datons AI",
+    "email": "jesus.lopez@datons.ai"
+  },
+  "plugins": [
+    {
+      "name": "esios",
+      "source": ".",
+      "description": "Query Spanish electricity market data (ESIOS/REE) — prices, generation, demand, I90 files, and any ESIOS indicator.",
+      "version": "2.0.0"
+    }
+  ]
+}
