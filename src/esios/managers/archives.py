@@ -202,7 +202,10 @@ class ArchivesManager(BaseManager):
     def list(self) -> pd.DataFrame:
         """List all available archives as a DataFrame."""
         data = self._get("archives")
-        return pd.DataFrame(data.get("archives", []))
+        df = pd.DataFrame(data.get("archives", []))
+        if "id" in df.columns:
+            df = df.set_index("id")
+        return df
 
     def get(self, archive_id: int) -> ArchiveHandle:
         """Get an archive by ID — returns a handle with ``.download()``."""
