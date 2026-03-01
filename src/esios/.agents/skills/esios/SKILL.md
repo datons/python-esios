@@ -39,8 +39,22 @@ esios indicators exec 600 -s 2025-01-01 -e 2025-01-31 --expr "df.resample('D').m
 ### Archives
 
 ```bash
+# List all available archives
 esios archives list
-esios archives download 1 --start 2025-01-01 --end 2025-01-31 --output ./data
+
+# Download archive files
+esios archives download 34 --start 2025-05-01 --end 2025-05-31 --output ./data
+esios archives download 34 --date 2025-06-01
+
+# List sheets (table of contents) in an I90 file
+esios archives sheets 34 --date 2025-06-01
+
+# Parse and query archive data (like indicators exec but for archives)
+esios archives exec 34 --sheet I90DIA03 --date 2025-06-01
+esios archives exec 34 --sheet I90DIA03 --date 2025-06-01 -x "df.describe()"
+esios archives exec 34 --sheet I90DIA03 -s 2025-05-05 -e 2025-06-08 \
+  -x "df[df['Sentido']=='Bajar'].groupby('Unidad de Programación')['value'].sum().sort_values()"
+esios archives exec 34 --sheet I90DIA26 --date 2025-06-01 --format csv --output pbf.csv
 ```
 
 ### Cache Management
@@ -132,11 +146,42 @@ df = client.indicators.compare([600, 10034, 10035], "2025-01-01", "2025-01-07")
 
 ## I90 Settlement Files
 
-```python
-from esios.processing import I90Book
+### CLI (quickest path)
 
-book = I90Book("path/to/I90DIA_20250101.xls")
-sheet = book["3.1"]       # Access specific sheet
+```bash
+# Discover available sheets
+esios archives sheets 34 --date 2025-06-01
+
+# Key I90DIA sheets:
+# I90DIA03 — Restricciones en el Mercado Diario (curtailment)
+# I90DIA08 — Restricciones en Tiempo Real
+# I90DIA26 — Programa Base de Funcionamiento (PBF, generation program)
+# I90DIA01 — Programa PVP
+# I90DIA07 — Regulación Terciaria (mFRR)
+
+# Total curtailment by direction
+esios archives exec 34 --sheet I90DIA03 --date 2025-06-01 \
+  -x "df.groupby('Sentido')['value'].sum()"
+
+# Multi-day curtailment analysis
+esios archives exec 34 --sheet I90DIA03 -s 2025-05-05 -e 2025-06-08 \
+  -x "df[df['Sentido']=='Bajar'].groupby('Unidad de Programación')['value'].sum().sort_values().head(20)"
+```
+
+### Python library
+
+```python
+from esios import ESIOSClient
+from esios.processing.i90 import I90Book
+
+# Download + parse in one step
+client = ESIOSClient()
+archive = client.archives.get(34)
+books = I90Book.from_archive(archive, start="2025-05-05", end="2025-06-08")
+
+# Access a sheet
+book = books[0]
+sheet = book["I90DIA03"]
 df = sheet.df             # Preprocessed DataFrame with datetime index
 print(sheet.frequency)    # "hourly" or "hourly-quarterly"
 ```
