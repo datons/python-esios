@@ -385,6 +385,11 @@ class IndicatorsManager(BaseManager):
         indicator = Indicator.from_api(raw)
         handle = IndicatorHandle(self, indicator)
 
+        # Enrich geos from values returned in metadata response.
+        # Some indicators (e.g. province-level breakdown) have an empty
+        # "geos" field in the metadata but geo_id/geo_name in the values.
+        handle._enrich_geo_map(raw.get("values", []))
+
         # Persist metadata and geos
         if cache.config.enabled:
             handle._persist_meta()
