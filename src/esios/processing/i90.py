@@ -30,7 +30,7 @@ def _get_idx_column_start(columns: np.ndarray) -> int:
 
 def _any_value_greater_than_30(series: np.ndarray) -> bool:
     """Check if any numeric value exceeds 30 (quarter-hourly indicator)."""
-    return any(v > 30 for v in series if isinstance(v, (int, float)) and not np.isnan(v))
+    return any(v > 30 for v in series if isinstance(v, (int, float, np.integer, np.floating)) and not np.isnan(v))
 
 
 class I90Book:
@@ -164,15 +164,36 @@ class I90Sheet:
         return arr
 
     def _normalize_datetime_columns(self, columns: np.ndarray) -> np.ndarray:
-        """Normalize time column headers to integer period indices."""
+        """Normalize time column headers to integer period indices.
+
+        Handles three column formats found in I90 files:
+        - Sequential integers 1–24 (hourly) or 1–96 (quarterly)
+        - H-Q format with dash notation: "1-1", "1-2", "1-3", "1-4", "2-1", …
+        - NaN-filler format: [1, NaN, NaN, NaN, 2, …] (one label per hour,
+          three trailing NaNs for quarters 2–4)
+        """
         if any(pd.isna(columns)):
             self._n_columns_totals = 3
         else:
             self._n_columns_totals = 2
 
         series = pd.Series(columns, dtype=str).ffill()
-        series = series.str.split("-").str[0]
-        return series.astype(float).astype(int).values
+        parts = series.str.split("-")
+        hours = parts.str[0].astype(float).astype(int)
+
+        # H-Q format: any column carries an explicit quarter suffix (e.g. "1-2")
+        if (parts.str.len() > 1).any():
+            quarters = parts.apply(
+                lambda x: int(x[1]) if len(x) > 1 and str(x[1]).isdigit() else 1
+            )
+            return ((hours - 1) * 4 + quarters).values
+
+        # NaN-filler quarterly format: after ffill the same hour number repeats
+        # four times (quarters share the hour label).  Assign sequential indices.
+        if hours.duplicated().any():
+            return np.arange(1, len(hours) + 1)
+
+        return hours.values
 
     def _preprocess_double_index(
         self, idx: int, columns: np.ndarray
