@@ -165,6 +165,53 @@ class TestIndicatorsCaching:
         assert "1" in geos
         assert geos["1"] == "Portugal"
 
+    def test_get_enriches_geos_from_values_when_metadata_geos_empty(
+        self, cached_client, mock_httpx,
+    ):
+        """indicators.get() should populate geos from values when metadata geos is empty.
+
+        Reproduces the bug reported for indicators with province-level breakdown
+        (e.g. indicator 1161) where the API returns ``"geos": []`` in the
+        metadata field but each value carries ``geo_id`` / ``geo_name``.
+        """
+        indicator_response = {
+            "indicator": {
+                "id": 1161,
+                "name": "Generación medida Solar fotovoltaica",
+                "geos": [],
+                "values": [
+                    {
+                        "value": 100.0,
+                        "datetime": "2025-01-01T00:00:00.000+01:00",
+                        "datetime_utc": "2024-12-31T23:00:00Z",
+                        "tz_time": "2025-01-01T00:00:00.000+01:00",
+                        "geo_id": 4,
+                        "geo_name": "Almería",
+                    },
+                    {
+                        "value": 200.0,
+                        "datetime": "2025-01-01T00:00:00.000+01:00",
+                        "datetime_utc": "2024-12-31T23:00:00Z",
+                        "tz_time": "2025-01-01T00:00:00.000+01:00",
+                        "geo_id": 5,
+                        "geo_name": "Cádiz",
+                    },
+                ],
+            }
+        }
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = indicator_response
+        mock_httpx.get.return_value = response
+
+        handle = cached_client.indicators.get(1161)
+
+        # geos must be populated even though the metadata field was empty
+        assert len(handle.geos) == 2
+        geo_ids = {g["geo_id"] for g in handle.geos}
+        assert 4 in geo_ids
+        assert 5 in geo_ids
+
     def test_enrich_geo_map_persists(
         self, cached_client, mock_httpx,
     ):
