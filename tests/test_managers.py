@@ -58,13 +58,20 @@ class TestIndicatorsManager:
 
 
 class TestArchivesManager:
-    def test_list(self, client, mock_httpx, sample_archives_list_response):
+    def test_list_local(self, client):
+        """Default list() returns static catalog (153 archives)."""
+        df = client.archives.list()
+        assert isinstance(df, pd.DataFrame)
+        assert len(df) == 153
+
+    def test_list_api(self, client, mock_httpx, sample_archives_list_response):
+        """list(source='api') queries the ESIOS API."""
         response = MagicMock()
         response.status_code = 200
         response.json.return_value = sample_archives_list_response
         mock_httpx.get.return_value = response
 
-        df = client.archives.list()
+        df = client.archives.list(source="api")
         assert isinstance(df, pd.DataFrame)
         assert len(df) == 2
 
