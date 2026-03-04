@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.1.0](https://github.com/datons/python-esios/compare/python-esios-v2.0.2...python-esios-v2.1.0) (2026-03-04)
+
+
+### Features
+
+* add archives sheets and exec CLI commands for I90 processing ([b54f94a](https://github.com/datons/python-esios/commit/b54f94adfa56ee2150fc85f92055b002b0d3e9bb))
+* add static archives catalog (153 archives) and improve download API ([22e6095](https://github.com/datons/python-esios/commit/22e60953fb3d5314452c03807be3e12595b88fd4))
+* replace manual PyPI workflow with release-please ([3c0dcb3](https://github.com/datons/python-esios/commit/3c0dcb35b01a47ea489d5a1ecb891d6805486356))
+
+
+### Bug Fixes
+
+* correct author email to datons.com ([8e17132](https://github.com/datons/python-esios/commit/8e1713248a56928ba61898b5b84b0b4689798ce3))
+* rename release-please config to expected non-dotted filename ([2f53b76](https://github.com/datons/python-esios/commit/2f53b7658c3f3e02e53dcbb3a2fe149b8f16ad7c))
+* update archives test to match static catalog default ([9bbd98b](https://github.com/datons/python-esios/commit/9bbd98b56dee2ae1cfbed24537ad989f5214ae76))
+
+
+### Performance
+
+* lazy sheet loading in I90Book — only read sheets on demand ([2dfe941](https://github.com/datons/python-esios/commit/2dfe941bf71c74bb0bd07c72c90e92b61a0d3059))
+
 ## [2.0.0] - 2026-02-27
 
 Complete rewrite of the library with a new architecture, CLI, and caching system.
