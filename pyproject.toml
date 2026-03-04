@@ -10,7 +10,7 @@ readme = "README.md"
 license = "GPL-3.0-only"
 requires-python = ">=3.10"
 authors = [
-    { name = "Jesús López", email = "jesus.lopez@datons.ai" },
+    { name = "Jesús López", email = "jesus.lopez@datons.com" },
 ]
 keywords = ["esios", "ree", "energy", "electricity", "spain", "api"]
 classifiers = [
