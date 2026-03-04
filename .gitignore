@@ -24,6 +24,9 @@ Thumbs.db
 *.swp
 *.swo
 
+# Claude Code
+.claude/
+
 # Generated docs
 docs/
 
@@ -46,3 +49,6 @@ htmlcov/
 
 # Dev scripts
 random/
+
+# Backups
+examples_backup/
