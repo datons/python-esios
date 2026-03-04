@@ -1,81 +1,62 @@
 ---
 name: esios
 description: Query Spanish electricity market data (ESIOS/REE). Use when the user asks about electricity prices, generation, demand, I90 files, or any ESIOS indicator.
-version: 2.0.0
+version: 3.0.0
 ---
 
 # ESIOS Data Assistant
 
-You have access to the `python-esios` CLI and library for querying the Spanish electricity market (ESIOS/REE).
+You have access to the `python-esios` library and CLI for querying the Spanish electricity market (ESIOS/REE).
 
-## CLI Reference
+## When to use what
 
-### Indicators
+- **Python scripts** (default): reproducible, composable, saveable. Use for any data work the user will want to keep or iterate on.
+- **CLI**: quick one-shot lookups, exploration, sanity checks. Use when the user wants a fast answer they won't need again.
+- **If unsure**: ask the user whether they want a script or a quick CLI check.
 
-```bash
-# List all indicators
-esios indicators list
+## Python Library (default)
 
-# Search by name
-esios indicators search "precio"
+```python
+from esios import ESIOSClient
 
-# Show metadata (unit, granularity, geographies)
-esios indicators meta 600
+client = ESIOSClient()  # reads config file, then ESIOS_API_KEY env var
 
-# Historical data
-esios indicators history 600 --start 2025-01-01 --end 2025-01-31
-esios indicators history 600 -s 2025-01-01 -e 2025-01-31 --format csv --output data.csv
-esios indicators history 600 -s 2025-01-01 -e 2025-01-31 --format parquet --output data.parquet
+# --- Indicators ---
 
-# Filter by geography (ID or name)
-esios indicators history 600 -s 2025-01-01 -e 2025-01-31 --geo España
-esios indicators history 600 -s 2025-01-01 -e 2025-01-31 --geo 3
+# Get indicator handle
+handle = client.indicators.get(600)
 
-# Ad-hoc pandas expressions on fetched data
-esios indicators exec 600 -s 2025-01-01 -e 2025-01-31 --expr "df.describe()"
-esios indicators exec 600 -s 2025-01-01 -e 2025-01-31 --expr "df.resample('D').mean()"
+# Historical data as DataFrame
+df = handle.historical("2025-01-01", "2025-01-31")
+
+# Filter by geography
+df = handle.historical("2025-01-01", "2025-01-31", geo_ids=[3])  # España only
+
+# Inspect geographies
+handle.geos              # List of {"geo_id": int, "geo_name": str}
+handle.geos_dataframe()  # DataFrame with geo_id and geo_name columns
+handle.resolve_geo("España")  # Returns 3
+
+# Search indicators
+results = client.indicators.search("precio")
+
+# Compare multiple indicators
+df = client.indicators.compare([600, 10034, 10035], "2025-01-01", "2025-01-07")
+
+# --- I90 Settlement Files ---
+
+from esios.processing.i90 import I90Book
+
+archive = client.archives.get(34)
+books = I90Book.from_archive(archive, start="2025-05-05", end="2025-06-08")
+
+book = books[0]
+sheet = book["I90DIA03"]
+df = sheet.df             # Preprocessed DataFrame with datetime index
+print(sheet.frequency)    # "hourly" or "hourly-quarterly"
 ```
 
-### Archives
-
-```bash
-# List all available archives
-esios archives list
-
-# Download archive files
-esios archives download 34 --start 2025-05-01 --end 2025-05-31 --output ./data
-esios archives download 34 --date 2025-06-01
-
-# List sheets (table of contents) in an I90 file
-esios archives sheets 34 --date 2025-06-01
-
-# Parse and query archive data (like indicators exec but for archives)
-esios archives exec 34 --sheet I90DIA03 --date 2025-06-01
-esios archives exec 34 --sheet I90DIA03 --date 2025-06-01 -x "df.describe()"
-esios archives exec 34 --sheet I90DIA03 -s 2025-05-05 -e 2025-06-08 \
-  -x "df[df['Sentido']=='Bajar'].groupby('Unidad de Programación')['value'].sum().sort_values()"
-esios archives exec 34 --sheet I90DIA26 --date 2025-06-01 --format csv --output pbf.csv
-```
-
-### Cache Management
-
-```bash
-esios cache status    # Path, size, geos registry, catalog info
-esios cache geos      # Global geo_id → geo_name registry
-esios cache path      # Print cache directory
-esios cache clear     # Clear indicator cache
-esios cache clear --all  # Clear everything (indicators, archives, geos, catalog)
-esios cache clear --indicator 600  # Clear one indicator
-```
-
-### Configuration
-
-```bash
-esios config set token <API_KEY>
-esios config show
-```
-
-## Common Indicator IDs
+### Common Indicator IDs
 
 | ID | Name | Description | Geos |
 |----|------|-------------|------|
@@ -86,24 +67,18 @@ esios config show
 | 10035 | Generación solar FV | Real-time solar PV generation | ES |
 | 1293 | Demanda prevista | Forecasted demand | ES |
 
-Use `esios indicators search "query"` to find more. Use `esios indicators meta <id>` to see full metadata including geographies and units.
+Use `client.indicators.search("query")` to find more.
 
-## Multi-Geo Indicators
+### Multi-Geo Indicators
 
-Some indicators (e.g. 600) return data for multiple countries. The output is pivoted so each geography becomes a column:
+Some indicators (e.g. 600) return data for multiple countries. Output is pivoted so each geography becomes a column:
 
 ```
 datetime                España  Portugal  Francia  Alemania  Bélgica  Países Bajos
 2025-01-01 00:00:00     63.50    63.50     72.10    58.20     58.20     58.20
-2025-01-01 01:00:00     55.80    55.80     60.30    48.90     48.90     48.90
 ```
 
-Filter to specific geos with `--geo`:
-```bash
-esios indicators history 600 -s 2025-01-01 -e 2025-01-07 --geo España --geo Portugal
-```
-
-## Geography Reference
+### Geography Reference
 
 | geo_id | geo_name |
 |--------|----------|
@@ -114,94 +89,94 @@ esios indicators history 600 -s 2025-01-01 -e 2025-01-07 --geo España --geo Por
 | 8827 | Bélgica |
 | 8828 | Países Bajos |
 
-The `--geo` flag accepts both IDs and names (case-insensitive substring match):
-- `--geo 3` or `--geo España` or `--geo españa`
-- `--geo "Países Bajos"` or `--geo 8828`
+### I90 Key Sheets
 
-## Python Library
+| Sheet | Description |
+|-------|-------------|
+| I90DIA03 | Restricciones en el Mercado Diario (curtailment) |
+| I90DIA08 | Restricciones en Tiempo Real |
+| I90DIA26 | Programa Base de Funcionamiento (PBF, generation program) |
+| I90DIA01 | Programa PVP |
+| I90DIA07 | Regulación Terciaria (mFRR) |
 
-```python
-from esios import ESIOSClient
-
-client = ESIOSClient()  # reads config file, then ESIOS_API_KEY env var
-
-# Get indicator handle
-handle = client.indicators.get(600)
-
-# Historical data as DataFrame
-df = handle.historical("2025-01-01", "2025-01-31")
-
-# Filter by geo
-df = handle.historical("2025-01-01", "2025-01-31", geo_ids=[3])  # España only
-
-# Inspect geographies
-handle.geos             # List of {"geo_id": int, "geo_name": str}
-handle.geos_dataframe() # DataFrame with geo_id and geo_name columns
-handle.resolve_geo("España")  # Returns 3
-
-# Search and compare
-results = client.indicators.search("precio")
-df = client.indicators.compare([600, 10034, 10035], "2025-01-01", "2025-01-07")
-```
-
-## I90 Settlement Files
-
-### CLI (quickest path)
-
-```bash
-# Discover available sheets
-esios archives sheets 34 --date 2025-06-01
-
-# Key I90DIA sheets:
-# I90DIA03 — Restricciones en el Mercado Diario (curtailment)
-# I90DIA08 — Restricciones en Tiempo Real
-# I90DIA26 — Programa Base de Funcionamiento (PBF, generation program)
-# I90DIA01 — Programa PVP
-# I90DIA07 — Regulación Terciaria (mFRR)
-
-# Total curtailment by direction
-esios archives exec 34 --sheet I90DIA03 --date 2025-06-01 \
-  -x "df.groupby('Sentido')['value'].sum()"
-
-# Multi-day curtailment analysis
-esios archives exec 34 --sheet I90DIA03 -s 2025-05-05 -e 2025-06-08 \
-  -x "df[df['Sentido']=='Bajar'].groupby('Unidad de Programación')['value'].sum().sort_values().head(20)"
-```
-
-### Python library
-
-```python
-from esios import ESIOSClient
-from esios.processing.i90 import I90Book
-
-# Download + parse in one step
-client = ESIOSClient()
-archive = client.archives.get(34)
-books = I90Book.from_archive(archive, start="2025-05-05", end="2025-06-08")
-
-# Access a sheet
-book = books[0]
-sheet = book["I90DIA03"]
-df = sheet.df             # Preprocessed DataFrame with datetime index
-print(sheet.frequency)    # "hourly" or "hourly-quarterly"
-```
-
-## Caching Behavior
-
-- Data is cached locally as parquet files (`~/.cache/esios/`)
-- Each indicator gets its own directory: `indicators/{id}/data.parquet`
-- Indicator metadata cached in `indicators/{id}/meta.json` (7-day TTL)
-- Indicator catalog cached in `indicators/catalog.json` (24h TTL)
-- Global geo registry at `geos.json` (persisted forever, grows incrementally)
-- Data older than 48h is considered final (won't be re-fetched)
-- Recent data (last 48h) is re-fetched on each request (electricity market corrections)
-- Cache is per-column sparse: fetching `--geo España` only caches that column
-
-## Key Conventions
+### Key conventions
 
 - All timestamps are in Europe/Madrid timezone
 - Date ranges > 3 weeks are auto-chunked into smaller API requests
-- Archives support skip-existing (won't re-download cached files)
-- I90 sheets detect hourly vs quarter-hourly frequency automatically
-- API token resolution: config file (`~/.config/esios/config.toml`) > `ESIOS_API_KEY` env var
+- Data older than 48h is considered final (won't be re-fetched)
+- Recent data (last 48h) is re-fetched on each request (electricity market corrections)
+- Cache is per-column sparse: fetching `geo_ids=[3]` only caches that column
 - Custom exceptions: `ESIOSError`, `AuthenticationError`, `APIResponseError`, `NetworkError`
+
+## CLI Reference (quick lookups)
+
+### Catalog (offline)
+
+```bash
+esios catalog list indicators                   # List cataloged indicators
+esios catalog list indicators "precio"          # Filter by name
+esios catalog list archives                     # List cataloged archives
+esios catalog show indicator 600                # Details for indicator
+esios catalog show archive 34                   # Details for archive
+esios catalog refresh                           # Refresh from live API
+esios catalog refresh --dry-run                 # Preview changes
+```
+
+### Indicators
+
+```bash
+esios indicators list                           # List all indicators
+esios indicators search "precio"                # Search by name
+esios indicators meta 600                       # Show metadata
+esios indicators history 600 -s 2025-01-01 -e 2025-01-31
+esios indicators history 600 -s 2025-01-01 -e 2025-01-31 --geo España
+esios indicators history 600 -s 2025-01-01 -e 2025-01-31 --format csv --output data.csv
+```
+
+### Archives
+
+```bash
+esios archives list                             # List available archives
+esios archives download 34 -s 2025-05-01 -e 2025-05-31 --output ./data
+esios archives sheets 34 --date 2025-06-01      # List sheets in I90 file
+```
+
+### Exec (ad-hoc pandas)
+
+```bash
+# Indicators
+esios indicators exec 600 -s 2025-01-01 -e 2025-01-31 -x "df.describe()"
+esios indicators exec 600 -s 2025-01-01 -e 2025-01-31 --geo España -x "df.resample('D').mean()"
+esios indicators exec 600 10034 -s 2025-01-01 -e 2025-01-31 -x "df.corr()"
+
+# Archives (I90)
+esios archives exec 34 --sheet I90DIA03 --date 2025-06-01 -x "df.groupby('Sentido')['value'].sum()"
+esios archives exec 34 --sheet I90DIA03 -s 2025-05-05 -e 2025-06-08 \
+  -x "df[df['Sentido']=='Bajar'].groupby('Unidad de Programación')['value'].sum().sort_values()"
+```
+
+### Cache management
+
+```bash
+esios cache status                              # Path, size, registry info
+esios cache geos                                # Global geo_id → geo_name registry
+esios cache clear                               # Clear indicator cache
+esios cache clear --all                         # Clear everything
+esios cache clear --indicator 600               # Clear one indicator
+```
+
+### Output options
+
+```
+--format table|csv|json|parquet   (default: table)
+--output file.csv                 (write to file instead of stdout)
+```
+
+## Configuration
+
+```bash
+esios config set token <API_KEY>
+esios config show
+```
+
+Config file: `~/.config/esios/config.toml`. API key resolution: config file > `ESIOS_API_KEY` env var.
