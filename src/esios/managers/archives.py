@@ -214,11 +214,9 @@ class ArchivesManager(BaseManager):
                 df = df.set_index("id")
             return df
 
-        from esios.data.catalogs.archives import ARCHIVES_CATALOG
+        from esios.catalog import ArchivesCatalog
 
-        df = pd.DataFrame.from_dict(ARCHIVES_CATALOG, orient="index")
-        df.index.name = "id"
-        return df
+        return ArchivesCatalog().list()
 
     def get(self, archive_id: int) -> ArchiveHandle:
         """Get an archive by ID — returns a handle with ``.download()``."""

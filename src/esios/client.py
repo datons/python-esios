@@ -100,6 +100,11 @@ class ESIOSClient:
         self.archives = ArchivesManager(self)
         self.offer_indicators = OfferIndicatorsManager(self)
 
+        # Catalog (offline YAML-based)
+        from esios.catalog import ESIOSCatalog
+
+        self.catalog = ESIOSCatalog(self)
+
     # -- HTTP primitives -------------------------------------------------------
 
     @retry(

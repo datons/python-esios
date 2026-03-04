@@ -12,7 +12,7 @@ This project uses [release-please](https://github.com/googleapis/release-please)
 
 **Key files:**
 
-- `.release-please-config.json` — release-please configuration (package type, changelog sections)
+- `release-please-config.json` — release-please configuration (package type, changelog sections)
 - `.release-please-manifest.json` — tracks current version
 - `.github/workflows/release-please.yml` — workflow (release PR management + PyPI publish)
 

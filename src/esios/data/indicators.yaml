@@ -1,0 +1,43 @@
+version: 1
+generated_at: "2025-01-01T00:00:00"
+indicators:
+  - id: 600
+    name: "Precio mercado spot diario"
+    short_name: "PVPC"
+    notes: ""
+    tags: []
+  - id: 10211
+    name: "Precio medio horario componente mercado diario"
+    short_name: ""
+    notes: ""
+    tags: []
+  - id: 10034
+    name: "Generación prevista eólica"
+    short_name: "Eólica prev."
+    notes: ""
+    tags: ["generation", "wind"]
+  - id: 10035
+    name: "Generación prevista solar fotovoltaica"
+    short_name: "Solar FV prev."
+    notes: ""
+    tags: ["generation", "solar"]
+  - id: 1293
+    name: "Demanda real"
+    short_name: "Demanda"
+    notes: ""
+    tags: ["demand"]
+  - id: 1292
+    name: "Demanda prevista programada (P48)"
+    short_name: "Demanda P48"
+    notes: ""
+    tags: ["demand"]
+  - id: 10391
+    name: "Precio medio aritmético (€/MWh)"
+    short_name: "Precio medio"
+    notes: ""
+    tags: ["price"]
+  - id: 1001
+    name: "Precio mercado diario"
+    short_name: "Mercado diario"
+    notes: ""
+    tags: ["price"]
