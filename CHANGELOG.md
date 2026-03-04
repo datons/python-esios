@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.2.0](https://github.com/datons/python-esios/compare/python-esios-v2.1.0...python-esios-v2.2.0) (2026-03-04)
+
+
+### Features
+
+* add YAML-backed catalog with enriched indicator metadata ([00cc4b6](https://github.com/datons/python-esios/commit/00cc4b69a66268d6d4d6e63ce7d4d8f91c7e813a))
+
+
+### Bug Fixes
+
+* update skill with catalog commands and Python-first approach ([6051fb3](https://github.com/datons/python-esios/commit/6051fb31cbea2dce0b5eaeb87a561c33d8d8d4e6))
+
 ## [2.1.0](https://github.com/datons/python-esios/compare/python-esios-v2.0.2...python-esios-v2.1.0) (2026-03-04)
 
 
