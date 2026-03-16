@@ -142,6 +142,7 @@ class IndicatorHandle:
         geo_agg: str | None = None,
         time_trunc: str | None = None,
         geo_trunc: str | None = None,
+        column_name: str | None = None,
     ) -> pd.DataFrame:
         """Fetch historical values as a DataFrame with DatetimeIndex.
 
@@ -151,6 +152,12 @@ class IndicatorHandle:
         When multiple geo_ids are present (e.g. indicator 600 returns data for
         several countries), the result is pivoted so each geo becomes a column
         named by its geo_name. Use *geo_ids* to filter to specific geos.
+
+        Args:
+            column_name: If provided, rename the output column(s) to this name.
+                Useful for single-column results where a stable name like
+                ``"value"`` is preferred over the default geo_name or
+                indicator ID.
         """
         base_params: dict[str, Any] = {
             "locale": locale,
@@ -250,7 +257,7 @@ class IndicatorHandle:
             if existing:
                 result = result[existing]
 
-        return self._finalize(result)
+        return self._finalize(result, column_name=column_name)
 
     def _to_wide(self, values: list[dict]) -> pd.DataFrame:
         """Convert raw API value dicts to wide-format DataFrame.
@@ -283,14 +290,24 @@ class IndicatorHandle:
         df = df.drop(columns=geo_drop, errors="ignore")
         return df
 
-    def _finalize(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _finalize(
+        self, df: pd.DataFrame, *, column_name: str | None = None,
+    ) -> pd.DataFrame:
         """Prepare DataFrame for user-facing output.
 
         Cache stores columns as str(geo_id). This method renames them to
         human-readable geo_names at the very end, just before returning to
         the caller. Single-value/single-geo indicators get the indicator ID.
+
+        If ``column_name`` is provided and the result has a single column,
+        that column is renamed to ``column_name`` (e.g. ``"value"``).
         """
         if df.empty:
+            return df
+
+        # If caller wants a specific column name and there's a single column, use it
+        if column_name and len(df.columns) == 1:
+            df = df.rename(columns={df.columns[0]: column_name})
             return df
 
         if len(df.columns) == 1:
@@ -305,11 +322,15 @@ class IndicatorHandle:
         if rename:
             df = df.rename(columns=rename)
 
+        # If caller wants a specific column name for multi-column, skip
+        # (ambiguous which column to rename)
+        if column_name and len(df.columns) == 1:
+            df = df.rename(columns={df.columns[0]: column_name})
+            return df
+
         # Single-geo after rename: use indicator ID as column name
         if len(df.columns) == 1:
             col = df.columns[0]
-            # If the single column is a geo_name, keep it (user filtered to one geo)
-            # If it's still a geo_id string, rename to indicator ID
             if col not in geo_map.values():
                 df = df.rename(columns={col: str(self.id)})
 
