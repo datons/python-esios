@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.3.0](https://github.com/datons/python-esios/compare/python-esios-v2.2.0...python-esios-v2.3.0) (2026-03-16)
+
+
+### Features
+
+* restore column_name parameter in historical() ([a967b6f](https://github.com/datons/python-esios/commit/a967b6f54cd4e84d18469d99f0d4e03665b73e81))
+
+
+### Bug Fixes
+
+* handle DST transitions in I90 datetime parsing ([aa1deef](https://github.com/datons/python-esios/commit/aa1deefd442f2c53a376a4f3773b6fffea562121))
+
 ## [2.2.0](https://github.com/datons/python-esios/compare/python-esios-v2.1.0...python-esios-v2.2.0) (2026-03-04)
 
 
