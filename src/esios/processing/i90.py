@@ -166,11 +166,15 @@ class I90Sheet:
     def _normalize_datetime_columns(self, columns: np.ndarray) -> np.ndarray:
         """Normalize time column headers to integer period indices.
 
-        Handles three column formats found in I90 files:
-        - Sequential integers 1–24 (hourly) or 1–96 (quarterly)
-        - H-Q format with dash notation: "1-1", "1-2", "1-3", "1-4", "2-1", …
-        - NaN-filler format: [1, NaN, NaN, NaN, 2, …] (one label per hour,
-          three trailing NaNs for quarters 2–4)
+        Handles four column formats found in I90 files:
+
+        1. Sequential integers: 1–24 (hourly) or 1–96 (quarterly)
+        2. H-Q format: "1-1", "1-2", "1-3", "1-4", "2-1", …
+        3. NaN-filler format: [1, NaN, NaN, NaN, 2, …]
+        4. Range format (DST days): "00-01", "01-02", "02-03a", "02-03b", …
+           where the first number is the start hour and a/b suffix marks
+           the repeated hour on fall-back days. Detected by the first
+           column starting with "0" (e.g. "00-01").
         """
         if any(pd.isna(columns)):
             self._n_columns_totals = 3
@@ -178,6 +182,17 @@ class I90Sheet:
             self._n_columns_totals = 2
 
         series = pd.Series(columns, dtype=str).ffill()
+
+        # Range format (DST): "00-01", "01-02", "02-03a", "02-03b", ...
+        # Detected by first column starting with "0" (sequential ints start at 1).
+        first_val = str(columns[0]).strip()
+        if first_val.startswith("0") and "-" in first_val:
+            # Simply assign sequential 1-based indices.
+            # The count of columns (23, 24, or 25 for hourly; 92, 96, or 100
+            # for QH) already encodes the DST information. The datetime builder
+            # in _preprocess uses these as offsets from midnight UTC.
+            return np.arange(1, len(columns) + 1)
+
         parts = series.str.split("-")
         hours = parts.str[0].astype(float).astype(int)
 
@@ -251,12 +266,18 @@ class I90Sheet:
                 self.frequency = "hourly"
                 time_deltas = columns_date * 60  # minutes
 
-            # Build datetime index
-            base_date = pd.to_datetime(self.metadata["date_data"])
-            columns_datetime = base_date + pd.to_timedelta(time_deltas, unit="m")
-            columns_datetime = pd.DatetimeIndex(columns_datetime).tz_localize(
-                "Europe/Madrid", ambiguous="infer"
-            )
+            # Build datetime index in UTC to avoid DST ambiguity.
+            # On fall-back days (Oct), I90 has 25 hourly periods (or 100 QH).
+            # Naïve offset arithmetic creates a single 02:00 that tz_localize
+            # cannot disambiguate.  By anchoring midnight in Europe/Madrid,
+            # converting to UTC, then adding offsets, each period maps to a
+            # unique UTC instant — no ambiguity.
+            # On spring-forward days (Mar), I90 has 23 periods (or 92 QH)
+            # and this approach naturally skips the non-existent hour.
+            midnight_utc = pd.Timestamp(
+                self.metadata["date_data"], tz="Europe/Madrid"
+            ).tz_convert("UTC")
+            columns_datetime = midnight_utc + pd.to_timedelta(time_deltas, unit="m")
 
             data = pd.DataFrame(self.rows[idx + 1 :], columns=columns)
 
