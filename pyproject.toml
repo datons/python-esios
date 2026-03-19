@@ -53,3 +53,9 @@ packages = ["src/esios"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[dependency-groups]
+dev = [
+    "kaleido>=1.2.0",
+    "plotly>=6.6.0",
+]
