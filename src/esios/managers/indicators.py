@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import timedelta
 from typing import Any
 
 import pandas as pd
 
 from esios.cache import CacheStore
-from esios.constants import CHUNK_SIZE_DAYS, TIMEZONE
+from esios.constants import (
+    CHUNK_SIZE_DAYS_HIGH_GEO,
+    CHUNK_SIZE_DAYS_LOW_GEO,
+    DEFAULT_CHUNK_WORKERS,
+    HIGH_GEO_THRESHOLD,
+    TIMEZONE,
+)
 from esios.managers.base import BaseManager
 from esios.models.indicator import Indicator
 from esios.processing.dataframes import to_dataframe
@@ -131,6 +138,88 @@ class IndicatorHandle:
             f"Available: {', '.join(available)}"
         )
 
+    @property
+    def _chunk_days(self) -> int:
+        """Choose chunk size based on indicator's geo count.
+
+        ESIOS API times out (504) for high-geo indicators (40+ geos) with
+        windows larger than ~3 weeks. Low-geo indicators handle 6+ months
+        per request in <0.1s.
+
+        When geos are unknown (empty metadata), uses the conservative
+        chunk size to avoid timeouts on first fetch.
+        """
+        geo_count = len(self.geos)
+        if geo_count == 0:
+            # Unknown geo count — be conservative
+            return CHUNK_SIZE_DAYS_HIGH_GEO
+        if geo_count >= HIGH_GEO_THRESHOLD:
+            return CHUNK_SIZE_DAYS_HIGH_GEO
+        return CHUNK_SIZE_DAYS_LOW_GEO
+
+    def _fetch_one(
+        self, start: str, end: str, base_params: dict[str, Any],
+    ) -> list[dict]:
+        """Fetch a single date-range chunk from the ESIOS API."""
+        params = {
+            **base_params,
+            "start_date": start,
+            "end_date": end + "T23:59:59",
+        }
+        logger.debug("Fetch %s → %s", start, end)
+        data = self._manager._get(f"indicators/{self.id}", params=params)
+        return data.get("indicator", {}).get("values", [])
+
+    def _fetch_chunks(
+        self,
+        gaps: list,
+        base_params: dict[str, Any],
+        max_workers: int = DEFAULT_CHUNK_WORKERS,
+    ) -> list[dict]:
+        """Fetch all gap chunks concurrently, return values in order.
+
+        Builds a list of (start, end) chunks from the gaps, then fetches
+        them in parallel using a thread pool. Results are reassembled in
+        chronological order.
+        """
+        chunk_delta = timedelta(days=self._chunk_days)
+
+        # Build chunk list
+        chunks: list[tuple[str, str]] = []
+        for gap in gaps:
+            current = gap.start
+            while current <= gap.end:
+                chunk_end = min(current + chunk_delta, gap.end)
+                chunks.append((
+                    current.strftime("%Y-%m-%d"),
+                    chunk_end.strftime("%Y-%m-%d"),
+                ))
+                current = chunk_end + timedelta(days=1)
+
+        if not chunks:
+            return []
+
+        if len(chunks) == 1:
+            return self._fetch_one(chunks[0][0], chunks[0][1], base_params)
+
+        # Fetch concurrently, preserve order
+        results: list[list[dict] | None] = [None] * len(chunks)
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {
+                pool.submit(self._fetch_one, s, e, base_params): i
+                for i, (s, e) in enumerate(chunks)
+            }
+            for future in as_completed(futures):
+                idx = futures[future]
+                results[idx] = future.result()
+
+        # Flatten in chronological order
+        all_values: list[dict] = []
+        for chunk_values in results:
+            if chunk_values:
+                all_values.extend(chunk_values)
+        return all_values
+
     def historical(
         self,
         start: str,
@@ -143,11 +232,15 @@ class IndicatorHandle:
         time_trunc: str | None = None,
         geo_trunc: str | None = None,
         column_name: str | None = None,
+        chunk_workers: int = DEFAULT_CHUNK_WORKERS,
     ) -> pd.DataFrame:
         """Fetch historical values as a DataFrame with DatetimeIndex.
 
         Uses local parquet cache when enabled. Only fetches missing date ranges
-        from the API. Automatically chunks requests exceeding ~3 weeks.
+        from the API. Automatically chunks requests and fetches concurrently.
+
+        Chunk size adapts to the indicator's geo count: 180 days for low-geo
+        indicators, 21 days for high-geo (≥15 geos) to avoid ESIOS timeouts.
 
         When multiple geo_ids are present (e.g. indicator 600 returns data for
         several countries), the result is pivoted so each geo becomes a column
@@ -158,6 +251,8 @@ class IndicatorHandle:
                 Useful for single-column results where a stable name like
                 ``"value"`` is preferred over the default geo_name or
                 indicator ID.
+            chunk_workers: Number of concurrent threads for fetching chunks.
+                Defaults to 4. Set to 1 for sequential fetching.
         """
         base_params: dict[str, Any] = {
             "locale": locale,
@@ -211,24 +306,8 @@ class IndicatorHandle:
             from esios.cache import DateRange
             gaps = [DateRange(start_date, end_date)]
 
-        # -- Fetch missing ranges ----------------------------------------------
-        all_values: list[dict] = []
-        chunk_delta = timedelta(days=CHUNK_SIZE_DAYS)
-
-        for gap in gaps:
-            current = gap.start
-            gap_end = gap.end
-            while current <= gap_end:
-                chunk_end = min(current + chunk_delta, gap_end)
-                params = {
-                    **base_params,
-                    "start_date": current.strftime("%Y-%m-%d"),
-                    "end_date": chunk_end.strftime("%Y-%m-%d") + "T23:59:59",
-                }
-                logger.debug("Fetch %s → %s", params["start_date"], params["end_date"])
-                data = self._manager._get(f"indicators/{self.id}", params=params)
-                all_values.extend(data.get("indicator", {}).get("values", []))
-                current = chunk_end + timedelta(days=1)
+        # -- Fetch missing ranges (concurrent + adaptive chunk size) -----------
+        all_values = self._fetch_chunks(gaps, base_params, max_workers=chunk_workers)
 
         # Learn any new geo mappings from the response
         self._enrich_geo_map(all_values)
