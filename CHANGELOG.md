@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.0](https://github.com/datons/python-esios/compare/python-esios-v2.3.0...python-esios-v2.4.0) (2026-03-23)
+
+
+### Features
+
+* concurrent & adaptive chunk fetching for indicators ([1ef2590](https://github.com/datons/python-esios/commit/1ef2590cf870e13e57792cbb734e10f8d6449744))
+
 ## [2.3.0](https://github.com/datons/python-esios/compare/python-esios-v2.2.0...python-esios-v2.3.0) (2026-03-16)
 
 
