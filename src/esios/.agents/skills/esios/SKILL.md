@@ -60,8 +60,8 @@ print(sheet.frequency)    # "hourly" or "hourly-quarterly"
 
 | ID | Name | Description | Geos |
 |----|------|-------------|------|
-| 600 | Precio mercado spot | OMIE spot market price | ES, PT, FR, DE, BE, NL |
-| 1001 | Precio mercado diario | Day-ahead market price | ES |
+| 600 | Precio mercado SPOT Diario | OMIE spot / day-ahead market price | ES, PT, FR, DE, BE, NL |
+| 1001 | PVPC T. 2.0TD | Término de facturación de energía activa del PVPC (voluntary price for small consumers) | Península, Canarias, Baleares, Ceuta, Melilla |
 | 10033 | Demanda real | Real-time electricity demand | ES |
 | 10034 | Generación eólica | Real-time wind generation | ES |
 | 10035 | Generación solar FV | Real-time solar PV generation | ES |

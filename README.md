@@ -50,7 +50,7 @@ from esios import ESIOSClient
 client = ESIOSClient()
 
 # Get indicator data as DataFrame
-handle = client.indicators.get(600)  # PVPC price
+handle = client.indicators.get(600)  # Day-ahead spot price (OMIE)
 df = handle.historical("2025-01-01", "2025-01-31")
 
 # Search indicators
@@ -64,8 +64,8 @@ client.archives.download(1, start="2025-01-01", end="2025-01-31", output_dir="./
 
 | ID | Name | Description |
 |----|------|-------------|
-| 600 | PVPC | Voluntary price for small consumers |
-| 1001 | Day-ahead price | OMIE spot market price |
+| 600 | Day-ahead price | OMIE spot market price |
+| 1001 | PVPC | Voluntary price for small consumers (2.0TD) |
 | 10033 | Demand | Real-time electricity demand |
 | 10034 | Wind generation | Real-time wind generation |
 | 10035 | Solar PV generation | Real-time solar generation |

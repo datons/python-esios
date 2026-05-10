@@ -8,13 +8,13 @@ from esios.models.offer_indicator import OfferIndicator
 class TestIndicator:
     def test_from_api(self):
         data = {
-            "id": 600,
+            "id": 1001,
             "name": "PVPC",
             "short_name": "PVPC",
             "description": "Precio voluntario",
         }
         ind = Indicator.from_api(data)
-        assert ind.id == 600
+        assert ind.id == 1001
         assert ind.name == "PVPC"
         assert ind.raw == data
 

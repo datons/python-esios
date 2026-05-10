@@ -26,12 +26,12 @@ def client(mock_httpx):
 
 @pytest.fixture
 def sample_indicator_response():
-    """Sample API response for GET /indicators/600."""
+    """Sample API response for GET /indicators/1001."""
     return {
         "indicator": {
-            "id": 600,
-            "name": "PVPC T. Defecto",
-            "short_name": "PVPC",
+            "id": 1001,
+            "name": "Término de facturación de energía activa del PVPC 2.0TD",
+            "short_name": "PVPC T. 2.0TD",
             "description": "<p>Precio voluntario para el pequeño consumidor</p>",
             "values": [
                 {
@@ -39,16 +39,16 @@ def sample_indicator_response():
                     "datetime": "2025-01-01T00:00:00.000+01:00",
                     "datetime_utc": "2024-12-31T23:00:00Z",
                     "tz_time": "2025-01-01T00:00:00.000+01:00",
-                    "geo_id": 3,
-                    "geo_name": "España",
+                    "geo_id": 8741,
+                    "geo_name": "Península",
                 },
                 {
                     "value": 115.3,
                     "datetime": "2025-01-01T01:00:00.000+01:00",
                     "datetime_utc": "2025-01-01T00:00:00Z",
                     "tz_time": "2025-01-01T01:00:00.000+01:00",
-                    "geo_id": 3,
-                    "geo_name": "España",
+                    "geo_id": 8741,
+                    "geo_name": "Península",
                 },
             ],
         }
@@ -61,10 +61,10 @@ def sample_indicators_list_response():
     return {
         "indicators": [
             {
-                "id": 600,
-                "name": "PVPC T. Defecto",
-                "short_name": "PVPC",
-                "description": "<p>Precio voluntario</p>",
+                "id": 1001,
+                "name": "Término de facturación de energía activa del PVPC 2.0TD",
+                "short_name": "PVPC T. 2.0TD",
+                "description": "<p>Precio voluntario para el pequeño consumidor</p>",
             },
             {
                 "id": 10034,

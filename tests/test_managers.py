@@ -20,7 +20,7 @@ class TestIndicatorsManager:
         df = client.indicators.list()
         assert isinstance(df, pd.DataFrame)
         assert len(df) == 3
-        assert "PVPC T. Defecto" in df["name"].values
+        assert "Término de facturación de energía activa del PVPC 2.0TD" in df["name"].values
 
     def test_search(self, client, mock_httpx, sample_indicators_list_response):
         response = MagicMock()
@@ -38,9 +38,9 @@ class TestIndicatorsManager:
         response.json.return_value = sample_indicator_response
         mock_httpx.get.return_value = response
 
-        handle = client.indicators.get(600)
-        assert handle.id == 600
-        assert handle.name == "PVPC T. Defecto"
+        handle = client.indicators.get(1001)
+        assert handle.id == 1001
+        assert handle.name == "Término de facturación de energía activa del PVPC 2.0TD"
 
     def test_historical_returns_dataframe(
         self, client, mock_httpx, sample_indicator_response
@@ -50,7 +50,7 @@ class TestIndicatorsManager:
         response.json.return_value = sample_indicator_response
         mock_httpx.get.return_value = response
 
-        handle = client.indicators.get(600)
+        handle = client.indicators.get(1001)
         df = handle.historical("2025-01-01", "2025-01-01")
         assert isinstance(df, pd.DataFrame)
         assert len(df) == 2
@@ -134,15 +134,15 @@ class TestIndicatorsCaching:
         mock_httpx.get.return_value = response
 
         # First call: hits API
-        handle1 = cached_client.indicators.get(600)
+        handle1 = cached_client.indicators.get(1001)
         assert mock_httpx.get.call_count == 1
-        assert handle1.id == 600
+        assert handle1.id == 1001
 
         # Second call: should use cached meta (no additional API call)
-        handle2 = cached_client.indicators.get(600)
+        handle2 = cached_client.indicators.get(1001)
         assert mock_httpx.get.call_count == 1  # No new API call
-        assert handle2.id == 600
-        assert handle2.name == "PVPC T. Defecto"
+        assert handle2.id == 1001
+        assert handle2.name == "Término de facturación de energía activa del PVPC 2.0TD"
 
     def test_get_persists_geos_to_registry(
         self, cached_client, mock_httpx,
