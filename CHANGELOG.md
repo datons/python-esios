@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.4.1](https://github.com/datons/python-esios/compare/python-esios-v2.4.0...python-esios-v2.4.1) (2026-05-19)
+
+
+### Bug Fixes
+
+* **i90:** detect separator columns dynamically by header label ([1a9bf77](https://github.com/datons/python-esios/commit/1a9bf778eeb769aac836a945787c951c624f3806))
+* **i90:** detect separator columns dynamically by header label ([d6c747f](https://github.com/datons/python-esios/commit/d6c747f4db44b5667abf12f075ef468eca3eec20))
+
 ## [2.4.0](https://github.com/datons/python-esios/compare/python-esios-v2.3.0...python-esios-v2.4.0) (2026-03-23)
 
 
