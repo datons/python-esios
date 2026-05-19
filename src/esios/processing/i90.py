@@ -33,6 +33,43 @@ def _any_value_greater_than_30(series: np.ndarray) -> bool:
     return any(v > 30 for v in series if isinstance(v, (int, float, np.integer, np.floating)) and not np.isnan(v))
 
 
+# Labels that REE uses for the cells sitting between the index columns and the
+# per-period value columns of an I90 sheet. Match is exact (case-insensitive,
+# trimmed). The count of these cells per sheet has varied across REE format
+# revisions — historically 2 ("Hora" / "Cuarto de Hora del dia" + "Total");
+# from Oct 2025 the MTU 15-min transition dropped "Total" on several sheets,
+# leaving 1. Counting them dynamically keeps the parser resilient to either.
+_SEPARATOR_LABELS = frozenset({
+    "cuarto de hora del dia",
+    "hora del dia",
+    "hora",
+    "total",
+    "indicadores",
+})
+
+
+def _count_header_separators(row: np.ndarray, idx_col_start: int) -> int:
+    """Count separator cells immediately preceding the time-value block.
+
+    Walks ``row`` backwards from ``idx_col_start - 1``, incrementing on each
+    cell whose text matches a known separator label and stopping at the first
+    non-matching cell or NaN. A NaN cell signals the start of the index-column
+    placeholder zone in double-header layouts (where index labels live on the
+    other header row, leaving the date row blank under each index position).
+    """
+    n = 0
+    for i in range(idx_col_start - 1, -1, -1):
+        cell = row[i]
+        if cell is None or (isinstance(cell, float) and np.isnan(cell)):
+            break
+        text = str(cell).strip().lower()
+        if text in _SEPARATOR_LABELS:
+            n += 1
+            continue
+        break
+    return n
+
+
 class I90Book:
     """Represents an I90DIA workbook (XLS) with lazy sheet preprocessing.
 
@@ -221,6 +258,11 @@ class I90Sheet:
             return pd.DataFrame()
 
         columns_date = self._normalize_datetime_columns(columns_prior[idx_col_start:])
+        # _normalize_datetime_columns sets _n_columns_totals from the time-block
+        # content (NaN-filler vs sequential). Override with a header-label count
+        # so the index slice survives REE format revisions that add or drop a
+        # "Total" column without touching the time-axis encoding.
+        self._n_columns_totals = _count_header_separators(columns_prior, idx_col_start)
         columns_variable = columns[idx_col_start:]
         columns_index = columns[: idx_col_start - self._n_columns_totals]
 
@@ -230,6 +272,7 @@ class I90Sheet:
         self, idx_col_start: int, columns: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, None]:
         columns_date = self._normalize_datetime_columns(columns[idx_col_start:])
+        self._n_columns_totals = _count_header_separators(columns, idx_col_start)
         columns_index = columns[: idx_col_start - self._n_columns_totals]
         return columns, columns_index, columns_date, None
 
