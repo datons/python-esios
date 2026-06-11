@@ -55,6 +55,17 @@ def _mixed_hq_columns(n_hours: int = 24) -> np.ndarray:
     return np.array(cols, dtype=object)
 
 
+def _multi_measure_columns(n_periods: int = 96, n_measures: int = 2) -> np.ndarray:
+    """Multi-measure paired columns: the period number labels a block of
+    n_measures sub-columns (e.g. MW + €/MWh), the rest NaN: [1, NaN, 2, NaN, …].
+    """
+    cols: list = []
+    for p in range(1, n_periods + 1):
+        cols.append(p)
+        cols.extend([np.nan] * (n_measures - 1))
+    return np.array(cols, dtype=object)
+
+
 # ---------------------------------------------------------------------------
 # _any_value_greater_than_30
 # ---------------------------------------------------------------------------
@@ -317,3 +328,38 @@ class TestPreprocessOverrideIntegration:
         _, columns_index, _, _ = result
         assert list(columns_index) == ["Redespacho", "Tipo"]
         assert s._n_columns_totals == 2
+
+
+class TestNormalizeMultiMeasure:
+    """Multi-measure paired columns ([1, NaN, 2, NaN, …]) share the same
+    NaN-filler shape as the single-measure format but mean the opposite: the
+    duplication is the measures (MW + €/MWh), so the period index must be kept
+    (paired), not expanded to sequential slots. Regression for offer sheets
+    (OFFER_BT / OFFER_BS_*) whose MW and price were otherwise scattered across
+    8 slots/hour instead of paired into 4 quarter-hours.
+    """
+
+    def test_two_measures_keep_period_index(self):
+        s = _make_sheet()
+        result = s._normalize_datetime_columns(
+            _multi_measure_columns(4, n_measures=2), n_measures=2
+        )
+        # 4 quarters x 2 measures -> each quarter index repeated for its measures
+        assert list(result) == [1, 1, 2, 2, 3, 3, 4, 4]
+
+    def test_full_day_paired_96_periods(self):
+        s = _make_sheet()
+        result = s._normalize_datetime_columns(
+            _multi_measure_columns(96, n_measures=2), n_measures=2
+        )
+        assert len(result) == 192
+        assert result.max() == 96
+        _, counts = np.unique(result, return_counts=True)
+        assert set(counts.tolist()) == {2}  # every period appears once per measure
+        assert _any_value_greater_than_30(result)
+
+    def test_single_measure_default_still_sequential(self):
+        # n_measures defaults to 1 -> old NaN-filler behaviour is preserved
+        s = _make_sheet()
+        result = s._normalize_datetime_columns(_full_nan_filler_columns())
+        assert list(result) == list(range(1, 97))

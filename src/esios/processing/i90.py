@@ -200,18 +200,29 @@ class I90Sheet:
         arr[arr == ""] = np.nan
         return arr
 
-    def _normalize_datetime_columns(self, columns: np.ndarray) -> np.ndarray:
+    def _normalize_datetime_columns(
+        self, columns: np.ndarray, n_measures: int = 1
+    ) -> np.ndarray:
         """Normalize time column headers to integer period indices.
 
-        Handles four column formats found in I90 files:
+        Handles five column formats found in I90 files:
 
         1. Sequential integers: 1–24 (hourly) or 1–96 (quarterly)
         2. H-Q format: "1-1", "1-2", "1-3", "1-4", "2-1", …
-        3. NaN-filler format: [1, NaN, NaN, NaN, 2, …]
+        3. NaN-filler format: [1, NaN, NaN, NaN, 2, …] — one period number per
+           hour, three NaN fillers for the remaining quarters (single measure).
         4. Range format (DST days): "00-01", "01-02", "02-03a", "02-03b", …
            where the first number is the start hour and a/b suffix marks
            the repeated hour on fall-back days. Detected by the first
            column starting with "0" (e.g. "00-01").
+        5. Multi-measure format: [1, NaN, 2, NaN, …] — each period number labels
+           a block of `n_measures` sub-columns (e.g. MW + €/MWh paired per
+           quarter-hour in offer sheets), the NaN fillers being the extra
+           measures. The period number is on every n_measures-th column.
+
+        `n_measures` is the count of distinct measure sub-columns per period
+        (1 for single-measure sheets). It disambiguates format 3 from format 5,
+        which share the same NaN-filler shape but mean opposite things.
         """
         if any(pd.isna(columns)):
             self._n_columns_totals = 3
@@ -240,6 +251,10 @@ class I90Sheet:
             )
             return ((hours - 1) * 4 + quarters).values
 
+        # Multi-measure format: each period number labels a block of n_measures sub-columns (e.g. MW + €/MWh). The ffilled value already IS the period index and the duplication is the measures — keep it so every measure of a period shares one datetime (paired), instead of spreading them across sequential slots.
+        if n_measures > 1:
+            return hours.values
+
         # NaN-filler quarterly format: after ffill the same hour number repeats
         # four times (quarters share the hour label).  Assign sequential indices.
         if hours.duplicated().any():
@@ -257,13 +272,18 @@ class I90Sheet:
         if idx_col_start == -1:
             return pd.DataFrame()
 
-        columns_date = self._normalize_datetime_columns(columns_prior[idx_col_start:])
+        columns_variable = columns[idx_col_start:]
+        # Distinct measure labels per period (e.g. {MW, €/MWh} -> 2). Disambiguates the NaN-filler time header (single measure, expand to sequential quarters) from the multi-measure paired layout (keep the period index so measures pair).
+        measure_labels = pd.Series(columns_variable).dropna()
+        n_measures = int(measure_labels.nunique()) if len(measure_labels) else 1
+        columns_date = self._normalize_datetime_columns(
+            columns_prior[idx_col_start:], n_measures=n_measures
+        )
         # _normalize_datetime_columns sets _n_columns_totals from the time-block
         # content (NaN-filler vs sequential). Override with a header-label count
         # so the index slice survives REE format revisions that add or drop a
         # "Total" column without touching the time-axis encoding.
         self._n_columns_totals = _count_header_separators(columns_prior, idx_col_start)
-        columns_variable = columns[idx_col_start:]
         columns_index = columns[: idx_col_start - self._n_columns_totals]
 
         return columns, columns_index, columns_date, columns_variable
