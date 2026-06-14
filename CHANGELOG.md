@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.2](https://github.com/datons/python-esios/compare/python-esios-v2.4.1...python-esios-v2.4.2) (2026-06-11)
+
+
+### Bug Fixes
+
+* **i90:** pair MW and price per quarter-hour in multi-measure sheets ([06efdb6](https://github.com/datons/python-esios/commit/06efdb660077cc36c4435f0e36ae5f24e68e9189))
+
 ## [2.4.1](https://github.com/datons/python-esios/compare/python-esios-v2.4.0...python-esios-v2.4.1) (2026-05-19)
 
 
